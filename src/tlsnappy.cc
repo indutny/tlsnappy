@@ -1,0 +1,649 @@
+#include "tlsnappy.h"
+
+#include "openssl/ssl.h"
+#include "openssl/err.h"
+#include "node.h"
+#include "node_buffer.h"
+#include "node_object_wrap.h"
+#include "ngx-queue.h"
+#include "ring.h"
+
+#ifndef offset_of
+// g++ in strict mode complains loudly about the system offsetof() macro
+// because it uses NULL as the base address.
+# define offset_of(type, member) \
+  ((intptr_t) ((char *) &(((type *) 8)->member) - 8))
+#endif
+
+#ifndef container_of
+# define container_of(ptr, type, member) \
+  ((type *) ((char *) (ptr) - offset_of(type, member)))
+#endif
+
+namespace tlsnappy {
+
+using namespace v8;
+using namespace node;
+
+static Persistent<String> onedata_sym;
+static Persistent<String> oncdata_sym;
+static Persistent<String> onhandshake_sym;
+static Persistent<String> onclose_sym;
+
+Handle<Value> Context::New(const Arguments& args) {
+  HandleScope scope;
+
+  // XXX Multi-thread pool doesn't work atm
+  Context* ctx = new Context(1);
+  ctx->Wrap(args.Holder());
+
+  return scope.Close(args.This());
+}
+
+
+Context::Context(int worker_count) : status_(kRunning),
+                                     worker_count_(worker_count) {
+  ctx_ = SSL_CTX_new(SSLv23_method());
+  assert(ctx_ != NULL);
+
+  // Mitigate BEAST attacks
+  SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
+
+  if (uv_sem_init(&event_, 0)) abort();
+  if (uv_mutex_init(&queue_mtx_)) abort();
+  ngx_queue_init(&queue_);
+
+  assert(worker_count_ <= kMaxWorkers);
+  for (int i = 0; i < worker_count_; i++) {
+    if (uv_thread_create(&workers_[i], Context::Loop, this)) abort();
+  }
+}
+
+
+Context::~Context() {
+  SSL_CTX_free(ctx_);
+  ctx_ = NULL;
+
+  // Notify each worker about stop event
+  status_ = kStopped;
+  for (int i = 0; i < worker_count_; i++) {
+    uv_sem_post(&event_);
+  }
+
+  // And stop them
+  for (int i = 0; i < worker_count_; i++) {
+    uv_thread_join(&workers_[i]);
+  }
+
+  uv_sem_destroy(&event_);
+  uv_mutex_destroy(&queue_mtx_);
+}
+
+
+void Context::Enqueue(Socket* s) {
+  uv_mutex_lock(&queue_mtx_);
+  // Prevent double insertions
+  if (ngx_queue_empty(&s->member_)) {
+    ngx_queue_insert_tail(&queue_, &s->member_);
+  }
+  uv_mutex_unlock(&queue_mtx_);
+
+  uv_sem_post(&event_);
+}
+
+
+inline SSL* Context::GetSSL() {
+  SSL* ssl = SSL_new(ctx_);
+  assert(ssl != NULL);
+
+  return ssl;
+}
+
+
+void Context::Loop(void* arg) {
+  Context* ctx = reinterpret_cast<Context*>(arg);
+
+  while (ctx->RunLoop()) {
+  }
+}
+
+
+bool Context::RunLoop() {
+  uv_sem_wait(&event_);
+  if (status_ == kStopped) return false;
+
+  Socket* socket = NULL;
+
+  uv_mutex_lock(&queue_mtx_);
+
+  ngx_queue_t* member = ngx_queue_head(&queue_);
+  for (; member != &queue_; member = ngx_queue_next(member)) {
+    socket = container_of(member, Socket, member_);
+
+    // Only one worker can operate on socket at one time
+    if (uv_mutex_trylock(&socket->mtx_) == 0) {
+      ngx_queue_remove(member);
+      ngx_queue_init(member);
+      break;
+    } else {
+      socket = NULL;
+    }
+  }
+
+  uv_mutex_unlock(&queue_mtx_);
+
+  if (socket != NULL) {
+    socket->OnEvent();
+    uv_mutex_unlock(&socket->mtx_);
+  }
+
+  return true;
+}
+
+
+BIO* LoadBIO(Handle<Value> v) {
+  HandleScope scope;
+
+  BIO* bio = BIO_new(BIO_s_mem());
+  assert(bio != NULL);
+
+  int r = -1;
+
+  r = BIO_write(bio,
+                Buffer::Data(v.As<Object>()),
+                Buffer::Length(v.As<Object>()));
+  assert(r > 0);
+
+  return bio;
+}
+
+
+Handle<Value> Context::SetKey(const Arguments& args) {
+  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  BIO *bio = LoadBIO(args[0]);
+
+  String::Utf8Value passphrase(args[1]);
+
+  EVP_PKEY* key = PEM_read_bio_PrivateKey(bio, NULL, NULL,
+                                          args.Length() == 1 ?
+                                              NULL
+                                              :
+                                              *passphrase);
+
+  if (!key) {
+    BIO_free(bio);
+    unsigned long err = ERR_get_error();
+    if (!err) {
+      return ThrowException(Exception::Error(
+          String::New("PEM_read_bio_PrivateKey")));
+    }
+    char string[120];
+    ERR_error_string_n(err, string, sizeof string);
+    return ThrowException(Exception::Error(String::New(string)));
+  }
+
+  Context* ctx = ObjectWrap::Unwrap<Context>(args.This());
+
+  SSL_CTX_use_PrivateKey(ctx->ctx_, key);
+  EVP_PKEY_free(key);
+  BIO_free(bio);
+
+  return Null();
+}
+
+// Read a file that contains our certificate in "PEM" format,
+// possibly followed by a sequence of CA certificates that should be
+// sent to the peer in the Certificate message.
+//
+// Taken from OpenSSL - editted for style.
+int SSL_CTX_use_certificate_chain(SSL_CTX *ctx, BIO *in) {
+  int ret = 0;
+  X509 *x = NULL;
+
+  x = PEM_read_bio_X509_AUX(in, NULL, NULL, NULL);
+
+  if (x == NULL) {
+    SSLerr(SSL_F_SSL_CTX_USE_CERTIFICATE_CHAIN_FILE, ERR_R_PEM_LIB);
+    goto end;
+  }
+
+  ret = SSL_CTX_use_certificate(ctx, x);
+
+  if (ERR_peek_error() != 0) {
+    // Key/certificate mismatch doesn't imply ret==0 ...
+    ret = 0;
+  }
+
+  if (ret) {
+    // If we could set up our certificate, now proceed to
+    // the CA certificates.
+    X509 *ca;
+    int r;
+    unsigned long err;
+
+    if (ctx->extra_certs != NULL) {
+      sk_X509_pop_free(ctx->extra_certs, X509_free);
+      ctx->extra_certs = NULL;
+    }
+
+    while ((ca = PEM_read_bio_X509(in, NULL, NULL, NULL))) {
+      r = SSL_CTX_add_extra_chain_cert(ctx, ca);
+
+      if (!r) {
+        X509_free(ca);
+        ret = 0;
+        goto end;
+      }
+      // Note that we must not free r if it was successfully
+      // added to the chain (while we must free the main
+      // certificate, since its reference count is increased
+      // by SSL_CTX_use_certificate).
+    }
+
+    // When the while loop ends, it's usually just EOF.
+    err = ERR_peek_last_error();
+    if (ERR_GET_LIB(err) == ERR_LIB_PEM &&
+        ERR_GET_REASON(err) == PEM_R_NO_START_LINE) {
+      ERR_clear_error();
+    } else  {
+      // some real error
+      ret = 0;
+    }
+  }
+
+end:
+  if (x != NULL) X509_free(x);
+  return ret;
+}
+
+
+Handle<Value> Context::SetCert(const Arguments& args) {
+  HandleScope scope;
+  Context* ctx = ObjectWrap::Unwrap<Context>(args.This());
+
+  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  BIO *bio = LoadBIO(args[0]);
+
+  int rv = SSL_CTX_use_certificate_chain(ctx->ctx_, bio);
+
+  BIO_free(bio);
+
+  if (!rv) {
+    unsigned long err = ERR_get_error();
+    if (!err) {
+      return ThrowException(Exception::Error(
+          String::New("SSL_CTX_use_certificate_chain")));
+    }
+    char string[120];
+    ERR_error_string_n(err, string, sizeof string);
+    return ThrowException(Exception::Error(String::New(string)));
+  }
+
+  return Null();
+}
+
+
+Handle<Value> Socket::New(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 1) {
+    return ThrowException(String::New("First argument should be Context"));
+  }
+
+  Context* ctx = ObjectWrap::Unwrap<Context>(args[0].As<Object>());
+
+  Socket* s = new Socket(ctx);
+  s->Wrap(args.Holder());
+  s->Ref();
+
+  return scope.Close(args.This());
+}
+
+
+Socket::Socket(Context* ctx) : status_(kRunning), ctx_(ctx) {
+  ctx_->Ref();
+  ssl_ = ctx_->GetSSL();
+
+  rbio_ = BIO_new(BIO_s_mem());
+  wbio_ = BIO_new(BIO_s_mem());
+  assert(rbio_ != NULL);
+  assert(wbio_ != NULL);
+  SSL_set_bio(ssl_, rbio_, wbio_);
+  SSL_set_accept_state(ssl_);
+
+  if (uv_mutex_init(&mtx_)) abort();
+  if (uv_mutex_init(&enc_in_mtx_)) abort();
+  if (uv_mutex_init(&enc_out_mtx_)) abort();
+  if (uv_mutex_init(&clear_in_mtx_)) abort();
+  if (uv_mutex_init(&clear_out_mtx_)) abort();
+
+  uv_async_init(uv_default_loop(), &enc_out_cb_, EncOut);
+  uv_async_init(uv_default_loop(), &clear_out_cb_, ClearOut);
+  uv_async_init(uv_default_loop(), &close_cb_, OnClose);
+
+  ngx_queue_init(&member_);
+}
+
+
+Socket::~Socket() {
+  // Ensure that all workers will release socket
+  uv_mutex_lock(&mtx_);
+  uv_mutex_unlock(&mtx_);
+
+  SSL_free(ssl_);
+  ctx_->Unref();
+
+  uv_mutex_destroy(&mtx_);
+  uv_mutex_destroy(&enc_in_mtx_);
+  uv_mutex_destroy(&enc_out_mtx_);
+  uv_mutex_destroy(&clear_in_mtx_);
+  uv_mutex_destroy(&clear_out_mtx_);
+
+  uv_close(reinterpret_cast<uv_handle_t*>(&enc_out_cb_), NULL);
+  uv_close(reinterpret_cast<uv_handle_t*>(&clear_out_cb_), NULL);
+  uv_close(reinterpret_cast<uv_handle_t*>(&close_cb_), NULL);
+}
+
+
+Handle<Value> Socket::ClearIn(const Arguments& args) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  if (s->status_ >= kHalfClosed) return Null();
+
+  uv_mutex_lock(&s->clear_in_mtx_);
+  s->clear_in_.Write(Buffer::Data(args[0].As<Object>()),
+                     Buffer::Length(args[0].As<Object>()));
+  uv_mutex_unlock(&s->clear_in_mtx_);
+
+  s->ctx_->Enqueue(s);
+
+  return Null();
+}
+
+
+Handle<Value> Socket::EncIn(const Arguments& args) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  if (s->status_ >= kHalfClosed) return Null();
+
+  uv_mutex_lock(&s->enc_in_mtx_);
+  s->enc_in_.Write(Buffer::Data(args[0].As<Object>()),
+                   Buffer::Length(args[0].As<Object>()));
+  uv_mutex_unlock(&s->enc_in_mtx_);
+
+  s->ctx_->Enqueue(s);
+
+  return Null();
+}
+
+
+Handle<Value> Socket::Close(const Arguments& args) {
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  if (s->status_ != kRunning) {
+    return ThrowException(String::New("Socket is already closed"));
+  }
+
+  s->status_ = kClosing;
+  s->ctx_->Enqueue(s);
+
+  return Null();
+}
+
+
+void Socket::ClearOut(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = container_of(handle, Socket, clear_out_cb_);
+
+  if (s->status_ == kClosed) return;
+
+  uv_mutex_lock(&s->clear_out_mtx_);
+  int size = s->clear_out_.Size();
+  Buffer* b = Buffer::New(size);
+
+  int read = s->clear_out_.Read(Buffer::Data(b->handle_), size);
+  assert(read == size);
+  uv_mutex_unlock(&s->clear_out_mtx_);
+
+  Handle<Value> argv[1] = { b->handle_ };
+  MakeCallback(s->handle_, oncdata_sym, 1, argv);
+
+  if (s->status_ == kHalfClosed) uv_async_send(&s->close_cb_);
+}
+
+
+void Socket::EncOut(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = container_of(handle, Socket, enc_out_cb_);
+
+  if (s->status_ == kClosed) return;
+
+  uv_mutex_lock(&s->enc_out_mtx_);
+  int size = s->enc_out_.Size();
+  Buffer* b = Buffer::New(size);
+
+  int read = s->enc_out_.Read(Buffer::Data(b->handle_), size);
+  assert(read == size);
+  uv_mutex_unlock(&s->enc_out_mtx_);
+
+  Handle<Value> argv[1] = { b->handle_ };
+  MakeCallback(s->handle_, onedata_sym, 1, argv);
+
+  if (s->status_ == kHalfClosed) uv_async_send(&s->close_cb_);
+}
+
+
+void Socket::OnClose(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = container_of(handle, Socket, close_cb_);
+
+  if (s->status_ == kClosed) return;
+
+  int bytes = 0;
+  uv_mutex_lock(&s->clear_in_mtx_);
+  bytes += s->clear_in_.Size();
+  uv_mutex_unlock(&s->clear_in_mtx_);
+
+  uv_mutex_lock(&s->enc_in_mtx_);
+  bytes += s->enc_in_.Size();
+  uv_mutex_unlock(&s->enc_in_mtx_);
+
+  uv_mutex_lock(&s->enc_out_mtx_);
+  bytes += s->enc_out_.Size();
+  uv_mutex_unlock(&s->enc_out_mtx_);
+
+  uv_mutex_lock(&s->clear_out_mtx_);
+  bytes += s->clear_out_.Size();
+  uv_mutex_unlock(&s->clear_out_mtx_);
+
+  if (bytes != 0) return;
+
+  s->status_ = kClosed;
+  MakeCallback(s->handle_, onclose_sym, 0, NULL);
+  s->Unref();
+}
+
+
+void Socket::OnEvent() {
+  int r;
+  int err;
+  int enc_bytes;
+  char enc_data[10240];
+  int bytes;
+  char data[10240];
+
+  // Do nothing with closed socket
+  if (status_ == kClosed) return;
+
+  // Ignore all events if socket is half-closed
+  if (status_ == kHalfClosed) goto emit_data;
+
+  do {
+    // Read data from rings
+    uv_mutex_lock(&enc_in_mtx_);
+    enc_bytes = enc_in_.Read(enc_data, sizeof(enc_data));
+    uv_mutex_unlock(&enc_in_mtx_);
+
+    // Write encrypted data
+    if (enc_bytes > 0) {
+      r = BIO_write(rbio_, enc_data, enc_bytes);
+      assert(r == enc_bytes);
+    }
+  } while (enc_bytes == sizeof(enc_data));
+
+  do {
+    // Write clear data
+    uv_mutex_lock(&clear_in_mtx_);
+    bytes = clear_in_.Peek(data, sizeof(data));
+    uv_mutex_unlock(&clear_in_mtx_);
+
+    if (bytes > 0) {
+      r = SSL_write(ssl_, data, bytes);
+      if (r > 0) {
+        // Flush data
+        uv_mutex_lock(&clear_in_mtx_);
+        clear_in_.Read(NULL, r);
+        uv_mutex_unlock(&clear_in_mtx_);
+
+        // Loop until all data will be written
+        if (r < bytes) continue;
+      } else {
+        err = SSL_get_error(ssl_, r);
+        if (err == SSL_ERROR_ZERO_RETURN) {
+          // Ignore
+        } else if (err == SSL_ERROR_WANT_READ) {
+          // Ignore
+          break;
+        } else if (err == SSL_ERROR_WANT_WRITE) {
+          // Ignore
+          break;
+        } else {
+          fprintf(stdout, "SSL error: %d\n", err);
+          abort();
+        }
+      }
+    }
+  } while (bytes == sizeof(data));
+
+emit_data:
+
+  do {
+    // Read clear data
+    bytes = SSL_read(ssl_, data, sizeof(data));
+    if (bytes > 0) {
+      uv_mutex_lock(&clear_out_mtx_);
+      clear_out_.Write(data, bytes);
+      uv_mutex_unlock(&clear_out_mtx_);
+
+      uv_async_send(&clear_out_cb_);
+    } else {
+      err = SSL_get_error(ssl_, bytes);
+      if (err == SSL_ERROR_ZERO_RETURN) {
+        // Ignore
+      } else if (err == SSL_ERROR_WANT_READ) {
+        break;
+      } else if (err == SSL_ERROR_WANT_WRITE) {
+        break;
+      } else {
+        fprintf(stdout, "SSL error: %d\n", err);
+        abort();
+      }
+    }
+  } while (bytes == sizeof(data));
+
+  // Read encrypted data
+  do {
+    bytes = BIO_read(wbio_, data, sizeof(data));
+    if (bytes > 0) {
+      uv_mutex_lock(&enc_out_mtx_);
+      enc_out_.Write(data, bytes);
+      uv_mutex_unlock(&enc_out_mtx_);
+
+      uv_async_send(&enc_out_cb_);
+    }
+  } while (bytes == sizeof(data));
+
+  if (status_ == kClosing) {
+    bytes = 0;
+    uv_mutex_lock(&clear_in_mtx_);
+    bytes += clear_in_.Size();
+    uv_mutex_unlock(&clear_in_mtx_);
+
+    uv_mutex_lock(&enc_in_mtx_);
+    bytes += enc_in_.Size();
+    uv_mutex_unlock(&enc_in_mtx_);
+
+    // All remaining data was written to socket
+    if (bytes == 0) {
+      status_ = kHalfClosed;
+      uv_async_send(&close_cb_);
+    } else {
+      // Try again in next tick
+      ctx_->Enqueue(this);
+    }
+  }
+}
+
+
+void Context::Init(Handle<Object> target) {
+  Local<FunctionTemplate> t = FunctionTemplate::New(Context::New);
+
+  t->InstanceTemplate()->SetInternalFieldCount(1);
+  t->SetClassName(String::NewSymbol("Context"));
+
+  NODE_SET_PROTOTYPE_METHOD(t, "setKey", Context::SetKey);
+  NODE_SET_PROTOTYPE_METHOD(t, "setCert", Context::SetCert);
+
+  target->Set(String::NewSymbol("Context"), t->GetFunction());
+}
+
+
+void Socket::Init(Handle<Object> target) {
+  Local<FunctionTemplate> t = FunctionTemplate::New(Socket::New);
+
+  t->InstanceTemplate()->SetInternalFieldCount(1);
+  t->SetClassName(String::NewSymbol("Socket"));
+
+  NODE_SET_PROTOTYPE_METHOD(t, "clearIn", Socket::ClearIn);
+  NODE_SET_PROTOTYPE_METHOD(t, "encIn", Socket::EncIn);
+  NODE_SET_PROTOTYPE_METHOD(t, "close", Socket::Close);
+
+  target->Set(String::NewSymbol("Socket"), t->GetFunction());
+}
+
+
+void Init(Handle<Object> target) {
+  HandleScope scope;
+
+  onedata_sym = Persistent<String>::New(String::NewSymbol("onedata"));
+  oncdata_sym = Persistent<String>::New(String::NewSymbol("oncdata"));
+  onhandshake_sym = Persistent<String>::New(String::NewSymbol("onhandshake"));
+  onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
+
+  SSL_library_init();
+  OpenSSL_add_all_algorithms();
+  OpenSSL_add_all_digests();
+  SSL_load_error_strings();
+  ERR_load_crypto_strings();
+
+  Context::Init(target);
+  Socket::Init(target);
+}
+
+} // namespace tlsnappy
+
+NODE_MODULE(tlsnappy, tlsnappy::Init)

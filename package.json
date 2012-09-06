@@ -1,0 +1,14 @@
+{
+  "name": "tlsnappy",
+  "version": "0.0.0",
+  "main": "lib/tlsnappy",
+  "dependencies": {
+    "bindings": "~1.0.0"
+  },
+  "devDependencies": {
+    "mocha": "~1.4.2"
+  },
+  "scripts": {
+    "test": "mocha --timeout 10000 --reporter spec --growl test/*-test.js"
+  }
+}
