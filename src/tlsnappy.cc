@@ -29,6 +29,7 @@ static Persistent<String> onedata_sym;
 static Persistent<String> oncdata_sym;
 static Persistent<String> onhandshake_sym;
 static Persistent<String> onclose_sym;
+static Persistent<String> onerror_sym;
 
 Handle<Value> Context::New(const Arguments& args) {
   HandleScope scope;
@@ -47,7 +48,7 @@ Context::Context(int worker_count) : status_(kRunning),
   assert(ctx_ != NULL);
 
   // Mitigate BEAST attacks
-  SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
+  // SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
   if (uv_sem_init(&event_, 0)) abort();
   if (uv_mutex_init(&queue_mtx_)) abort();
@@ -323,11 +324,29 @@ Socket::Socket(Context* ctx) : status_(kRunning), ctx_(ctx) {
   if (uv_mutex_init(&clear_in_mtx_)) abort();
   if (uv_mutex_init(&clear_out_mtx_)) abort();
 
-  uv_async_init(uv_default_loop(), &enc_out_cb_, EncOut);
-  uv_async_init(uv_default_loop(), &clear_out_cb_, ClearOut);
-  uv_async_init(uv_default_loop(), &close_cb_, OnClose);
+  uv_async_t** handles[4] = { &enc_out_cb_,
+                              &clear_out_cb_,
+                              &close_cb_,
+                              &err_cb_ };
+
+  for (int i = 0; i < 4; i++) {
+    uv_async_t* handle = new uv_async_t();
+
+    handle->data = this;
+    *handles[i] = handle;
+  }
+
+  if (uv_async_init(uv_default_loop(), enc_out_cb_, EncOut)) abort();
+  if (uv_async_init(uv_default_loop(), clear_out_cb_, ClearOut)) abort();
+  if (uv_async_init(uv_default_loop(), close_cb_, OnClose)) abort();
+  if (uv_async_init(uv_default_loop(), err_cb_, OnError)) abort();
 
   ngx_queue_init(&member_);
+}
+
+
+void OnAsyncClose(uv_handle_t* handle) {
+  delete handle;
 }
 
 
@@ -345,9 +364,10 @@ Socket::~Socket() {
   uv_mutex_destroy(&clear_in_mtx_);
   uv_mutex_destroy(&clear_out_mtx_);
 
-  uv_close(reinterpret_cast<uv_handle_t*>(&enc_out_cb_), NULL);
-  uv_close(reinterpret_cast<uv_handle_t*>(&clear_out_cb_), NULL);
-  uv_close(reinterpret_cast<uv_handle_t*>(&close_cb_), NULL);
+  uv_async_t* handles[4] = { enc_out_cb_, clear_out_cb_, close_cb_, err_cb_ };
+  for (int i = 0; i < 4; i++) {
+    uv_close(reinterpret_cast<uv_handle_t*>(handles[i]), OnAsyncClose);
+  }
 }
 
 
@@ -407,7 +427,7 @@ Handle<Value> Socket::Close(const Arguments& args) {
 
 void Socket::ClearOut(uv_async_t* handle, int status) {
   HandleScope scope;
-  Socket* s = container_of(handle, Socket, clear_out_cb_);
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
 
   if (s->status_ == kClosed) return;
 
@@ -422,13 +442,13 @@ void Socket::ClearOut(uv_async_t* handle, int status) {
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, oncdata_sym, 1, argv);
 
-  if (s->status_ == kHalfClosed) uv_async_send(&s->close_cb_);
+  if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
 }
 
 
 void Socket::EncOut(uv_async_t* handle, int status) {
   HandleScope scope;
-  Socket* s = container_of(handle, Socket, enc_out_cb_);
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
 
   if (s->status_ == kClosed) return;
 
@@ -443,13 +463,13 @@ void Socket::EncOut(uv_async_t* handle, int status) {
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, onedata_sym, 1, argv);
 
-  if (s->status_ == kHalfClosed) uv_async_send(&s->close_cb_);
+  if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
 }
 
 
 void Socket::OnClose(uv_async_t* handle, int status) {
   HandleScope scope;
-  Socket* s = container_of(handle, Socket, close_cb_);
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
 
   if (s->status_ == kClosed) return;
 
@@ -475,6 +495,15 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   s->status_ = kClosed;
   MakeCallback(s->handle_, onclose_sym, 0, NULL);
   s->Unref();
+}
+
+
+void Socket::OnError(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
+
+  if (s->status_ == kClosed) return;
+  MakeCallback(s->handle_, onerror_sym, 0, NULL);
 }
 
 
@@ -532,12 +561,12 @@ void Socket::OnEvent() {
           // Ignore
           break;
         } else {
-          fprintf(stdout, "SSL error: %d\n", err);
-          abort();
+          uv_async_send(err_cb_);
+          break;
         }
       }
     }
-  } while (bytes == sizeof(data));
+  } while (bytes > 0);
 
 emit_data:
 
@@ -549,7 +578,7 @@ emit_data:
       clear_out_.Write(data, bytes);
       uv_mutex_unlock(&clear_out_mtx_);
 
-      uv_async_send(&clear_out_cb_);
+      uv_async_send(clear_out_cb_);
     } else {
       err = SSL_get_error(ssl_, bytes);
       if (err == SSL_ERROR_ZERO_RETURN) {
@@ -559,11 +588,11 @@ emit_data:
       } else if (err == SSL_ERROR_WANT_WRITE) {
         break;
       } else {
-        fprintf(stdout, "SSL error: %d\n", err);
-        abort();
+        uv_async_send(err_cb_);
+        break;
       }
     }
-  } while (bytes == sizeof(data));
+  } while (bytes > 0);
 
   // Read encrypted data
   do {
@@ -573,7 +602,7 @@ emit_data:
       enc_out_.Write(data, bytes);
       uv_mutex_unlock(&enc_out_mtx_);
 
-      uv_async_send(&enc_out_cb_);
+      uv_async_send(enc_out_cb_);
     }
   } while (bytes == sizeof(data));
 
@@ -590,7 +619,7 @@ emit_data:
     // All remaining data was written to socket
     if (bytes == 0) {
       status_ = kHalfClosed;
-      uv_async_send(&close_cb_);
+      uv_async_send(close_cb_);
     } else {
       // Try again in next tick
       ctx_->Enqueue(this);
@@ -633,6 +662,7 @@ void Init(Handle<Object> target) {
   oncdata_sym = Persistent<String>::New(String::NewSymbol("oncdata"));
   onhandshake_sym = Persistent<String>::New(String::NewSymbol("onhandshake"));
   onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
+  onerror_sym = Persistent<String>::New(String::NewSymbol("onerror"));
 
   SSL_library_init();
   OpenSSL_add_all_algorithms();

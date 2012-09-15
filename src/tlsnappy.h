@@ -79,6 +79,7 @@ class Socket : public ObjectWrap {
   static void ClearOut(uv_async_t* handle, int status);
   static void EncOut(uv_async_t* handle, int status);
   static void OnClose(uv_async_t* handle, int status);
+  static void OnError(uv_async_t* handle, int status);
 
   volatile Status status_;
 
@@ -86,9 +87,10 @@ class Socket : public ObjectWrap {
   Ring enc_out_;
   Ring clear_in_;
   Ring clear_out_;
-  uv_async_t clear_out_cb_;
-  uv_async_t enc_out_cb_;
-  uv_async_t close_cb_;
+  uv_async_t* clear_out_cb_;
+  uv_async_t* enc_out_cb_;
+  uv_async_t* close_cb_;
+  uv_async_t* err_cb_;
 
   void OnEvent();
 
@@ -97,9 +99,6 @@ class Socket : public ObjectWrap {
   uv_mutex_t enc_out_mtx_;
   uv_mutex_t clear_in_mtx_;
   uv_mutex_t clear_out_mtx_;
-
-  uv_async_t cdata_cb_;
-  uv_async_t edata_cb_;
 
   Context* ctx_;
   BIO* rbio_;

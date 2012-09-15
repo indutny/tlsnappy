@@ -6,12 +6,8 @@ var options = {
   cert: fs.readFileSync(__dirname + '/../keys/server.crt')
 };
 
-tlsnappy.createServer(options, function(c) {
-  c.on('data', function(data) {
-    console.log(data.toString());
-  });
-  c.write('HTTP/1.1 200 Ok\r\n\r\nhello');
-  c.end();
+tlsnappy.createHTTPServer(options, function(req, res) {
+  res.end('hello world');
 }).listen(44300, function() {
   console.log('listening');
 });
