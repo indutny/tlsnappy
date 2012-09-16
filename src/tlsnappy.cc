@@ -491,6 +491,16 @@ void Socket::OnError(uv_async_t* handle, int status) {
   // Stop accepting incoming data on error
   if (s->status_ >= kHalfClosed) return;
   s->status_ = kHalfClosed;
+
+  // Flush all incoming data
+  uv_mutex_lock(&s->clear_in_mtx_);
+  s->clear_in_.Read(NULL, s->clear_in_.Size());
+  uv_mutex_unlock(&s->clear_in_mtx_);
+
+  uv_mutex_lock(&s->enc_in_mtx_);
+  s->enc_in_.Read(NULL, s->enc_in_.Size());
+  uv_mutex_unlock(&s->enc_in_mtx_);
+
   s->ctx_->Enqueue(s);
 }
 
