@@ -29,7 +29,6 @@ static Persistent<String> onedata_sym;
 static Persistent<String> oncdata_sym;
 static Persistent<String> onhandshake_sym;
 static Persistent<String> onclose_sym;
-static Persistent<String> onerror_sym;
 
 Handle<Value> Context::New(const Arguments& args) {
   HandleScope scope;
@@ -548,6 +547,7 @@ void Socket::OnEvent() {
         } else {
           if (err_ == 0) {
             err_ = err;
+            SSL_shutdown(ssl_);
             uv_async_send(err_cb_);
           }
           break;
@@ -578,6 +578,7 @@ emit_data:
       } else {
         if (err_ == 0) {
           err_ = err;
+          SSL_shutdown(ssl_);
           uv_async_send(err_cb_);
         }
         break;
@@ -659,13 +660,6 @@ void Init(Handle<Object> target) {
   oncdata_sym = Persistent<String>::New(String::NewSymbol("oncdata"));
   onhandshake_sym = Persistent<String>::New(String::NewSymbol("onhandshake"));
   onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
-  onerror_sym = Persistent<String>::New(String::NewSymbol("onerror"));
-
-  SSL_library_init();
-  OpenSSL_add_all_algorithms();
-  OpenSSL_add_all_digests();
-  SSL_load_error_strings();
-  ERR_load_crypto_strings();
 
   Context::Init(target);
   Socket::Init(target);
