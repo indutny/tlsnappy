@@ -502,6 +502,7 @@ void Socket::OnError(uv_async_t* handle, int status) {
   uv_mutex_unlock(&s->enc_in_mtx_);
 
   s->ctx_->Enqueue(s);
+  uv_async_send(s->close_cb_);
 }
 
 

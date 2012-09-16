@@ -7,7 +7,7 @@
 class Ring{
  public:
   struct Buffer {
-    char data[32 * 1024];
+    char data[4 * 1024];
     int offset;
     Buffer* next;
   };
