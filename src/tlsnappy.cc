@@ -401,7 +401,7 @@ Handle<Value> Socket::Close(const Arguments& args) {
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
   if (s->status_ != kRunning) {
-    return ThrowException(String::New("Socket is already closed"));
+    return Null();
   }
 
   s->status_ = kClosing;
