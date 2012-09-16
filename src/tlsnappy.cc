@@ -34,19 +34,23 @@ Handle<Value> Context::New(const Arguments& args) {
   HandleScope scope;
 
   // XXX Multi-thread pool doesn't work atm
-  Context* ctx = new Context(1);
+  Context* ctx = new Context();
   ctx->Wrap(args.Holder());
 
   return scope.Close(args.This());
 }
 
 
-Context::Context(int worker_count) : status_(kRunning) {
+Context::Context() : status_(kRunning) {
   ctx_ = SSL_CTX_new(SSLv23_method());
   assert(ctx_ != NULL);
 
   // Mitigate BEAST attacks
   SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
+  SSL_CTX_set_options(ctx_, SSL_OP_NO_COMPRESSION);
+  SSL_CTX_set_options(ctx_, SSL_SESS_CACHE_SERVER |
+                            SSL_SESS_CACHE_NO_INTERNAL |
+                            SSL_SESS_CACHE_NO_AUTO_CLEAR);
 
   if (uv_sem_init(&event_, 0)) abort();
   if (uv_mutex_init(&queue_mtx_)) abort();
@@ -485,7 +489,7 @@ void Socket::OnError(uv_async_t* handle, int status) {
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
   // Stop accepting incoming data on error
-  if (s->status_ > kHalfClosed) return;
+  if (s->status_ >= kHalfClosed) return;
   s->status_ = kHalfClosed;
   s->ctx_->Enqueue(s);
 }

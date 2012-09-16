@@ -24,7 +24,7 @@ class Context : public ObjectWrap {
     kStopped
   };
 
-  Context(int worker_count);
+  Context();
   ~Context();
 
   static void Init(Handle<Object> target);
