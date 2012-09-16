@@ -33,8 +33,6 @@ class Context : public ObjectWrap {
   inline SSL* GetSSL();
 
  protected:
-  static const int kMaxWorkers = 16;
-
   static Handle<Value> New(const Arguments& args);
   static Handle<Value> SetKey(const Arguments& args);
   static Handle<Value> SetCert(const Arguments& args);
@@ -47,8 +45,7 @@ class Context : public ObjectWrap {
   uv_sem_t event_;
   uv_mutex_t queue_mtx_;
   ngx_queue_t queue_;
-  uv_thread_t workers_[kMaxWorkers];
-  int worker_count_;
+  uv_thread_t worker_;
 
   SSL_CTX* ctx_;
 
@@ -82,6 +79,8 @@ class Socket : public ObjectWrap {
   static void OnError(uv_async_t* handle, int status);
 
   volatile Status status_;
+  int err_;
+  bool sent_shutdown_;
 
   Ring enc_in_;
   Ring enc_out_;
@@ -94,7 +93,6 @@ class Socket : public ObjectWrap {
 
   void OnEvent();
 
-  uv_mutex_t mtx_;
   uv_mutex_t enc_in_mtx_;
   uv_mutex_t enc_out_mtx_;
   uv_mutex_t clear_in_mtx_;

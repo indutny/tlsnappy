@@ -42,22 +42,18 @@ Handle<Value> Context::New(const Arguments& args) {
 }
 
 
-Context::Context(int worker_count) : status_(kRunning),
-                                     worker_count_(worker_count) {
+Context::Context(int worker_count) : status_(kRunning) {
   ctx_ = SSL_CTX_new(SSLv23_method());
   assert(ctx_ != NULL);
 
   // Mitigate BEAST attacks
-  // SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
+  SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
   if (uv_sem_init(&event_, 0)) abort();
   if (uv_mutex_init(&queue_mtx_)) abort();
   ngx_queue_init(&queue_);
 
-  assert(worker_count_ <= kMaxWorkers);
-  for (int i = 0; i < worker_count_; i++) {
-    if (uv_thread_create(&workers_[i], Context::Loop, this)) abort();
-  }
+  if (uv_thread_create(&worker_, Context::Loop, this)) abort();
 }
 
 
@@ -65,16 +61,12 @@ Context::~Context() {
   SSL_CTX_free(ctx_);
   ctx_ = NULL;
 
-  // Notify each worker about stop event
+  // Notify worker about stop event
   status_ = kStopped;
-  for (int i = 0; i < worker_count_; i++) {
-    uv_sem_post(&event_);
-  }
+  uv_sem_post(&event_);
 
-  // And stop them
-  for (int i = 0; i < worker_count_; i++) {
-    uv_thread_join(&workers_[i]);
-  }
+  // And stop it
+  uv_thread_join(&worker_);
 
   uv_sem_destroy(&event_);
   uv_mutex_destroy(&queue_mtx_);
@@ -117,26 +109,19 @@ bool Context::RunLoop() {
 
   uv_mutex_lock(&queue_mtx_);
 
-  ngx_queue_t* member = ngx_queue_head(&queue_);
-  for (; member != &queue_; member = ngx_queue_next(member)) {
+  if (!ngx_queue_empty(&queue_)) {
+    ngx_queue_t* member = ngx_queue_head(&queue_);
     socket = container_of(member, Socket, member_);
-
-    // Only one worker can operate on socket at one time
-    if (uv_mutex_trylock(&socket->mtx_) == 0) {
-      ngx_queue_remove(member);
-      ngx_queue_init(member);
-      break;
-    } else {
-      socket = NULL;
-    }
+    ngx_queue_remove(member);
+    ngx_queue_init(member);
   }
 
   uv_mutex_unlock(&queue_mtx_);
 
-  if (socket != NULL) {
-    socket->OnEvent();
-    uv_mutex_unlock(&socket->mtx_);
-  }
+  // Continue looping if there're no sockets yet
+  if (socket == NULL) return true;
+
+  socket->OnEvent();
 
   return true;
 }
@@ -307,7 +292,10 @@ Handle<Value> Socket::New(const Arguments& args) {
 }
 
 
-Socket::Socket(Context* ctx) : status_(kRunning), ctx_(ctx) {
+Socket::Socket(Context* ctx) : status_(kRunning),
+                               err_(0),
+                               sent_shutdown_(false),
+                               ctx_(ctx) {
   ctx_->Ref();
   ssl_ = ctx_->GetSSL();
 
@@ -318,7 +306,6 @@ Socket::Socket(Context* ctx) : status_(kRunning), ctx_(ctx) {
   SSL_set_bio(ssl_, rbio_, wbio_);
   SSL_set_accept_state(ssl_);
 
-  if (uv_mutex_init(&mtx_)) abort();
   if (uv_mutex_init(&enc_in_mtx_)) abort();
   if (uv_mutex_init(&enc_out_mtx_)) abort();
   if (uv_mutex_init(&clear_in_mtx_)) abort();
@@ -351,14 +338,10 @@ void OnAsyncClose(uv_handle_t* handle) {
 
 
 Socket::~Socket() {
-  // Ensure that all workers will release socket
-  uv_mutex_lock(&mtx_);
-  uv_mutex_unlock(&mtx_);
-
+  assert(ngx_queue_empty(&member_));
   SSL_free(ssl_);
   ctx_->Unref();
 
-  uv_mutex_destroy(&mtx_);
   uv_mutex_destroy(&enc_in_mtx_);
   uv_mutex_destroy(&enc_out_mtx_);
   uv_mutex_destroy(&clear_in_mtx_);
@@ -502,8 +485,10 @@ void Socket::OnError(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
-  if (s->status_ == kClosed) return;
-  MakeCallback(s->handle_, onerror_sym, 0, NULL);
+  // Stop accepting incoming data on error
+  if (s->status_ > kHalfClosed) return;
+  s->status_ = kHalfClosed;
+  s->ctx_->Enqueue(s);
 }
 
 
@@ -561,7 +546,10 @@ void Socket::OnEvent() {
           // Ignore
           break;
         } else {
-          uv_async_send(err_cb_);
+          if (err_ == 0) {
+            err_ = err;
+            uv_async_send(err_cb_);
+          }
           break;
         }
       }
@@ -588,7 +576,10 @@ emit_data:
       } else if (err == SSL_ERROR_WANT_WRITE) {
         break;
       } else {
-        uv_async_send(err_cb_);
+        if (err_ == 0) {
+          err_ = err;
+          uv_async_send(err_cb_);
+        }
         break;
       }
     }
@@ -617,10 +608,16 @@ emit_data:
     uv_mutex_unlock(&enc_in_mtx_);
 
     // All remaining data was written to socket
-    if (bytes == 0) {
+    // and shutdown packet was sent
+    if (bytes == 0 && sent_shutdown_) {
+
       status_ = kHalfClosed;
       uv_async_send(close_cb_);
     } else {
+      // Ignore return value
+      SSL_shutdown(ssl_);
+      sent_shutdown_ = true;
+
       // Try again in next tick
       ctx_->Enqueue(this);
     }
