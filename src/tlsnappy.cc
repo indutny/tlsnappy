@@ -7,18 +7,7 @@
 #include "node_object_wrap.h"
 #include "ngx-queue.h"
 #include "ring.h"
-
-#ifndef offset_of
-// g++ in strict mode complains loudly about the system offsetof() macro
-// because it uses NULL as the base address.
-# define offset_of(type, member) \
-  ((intptr_t) ((char *) &(((type *) 8)->member) - 8))
-#endif
-
-#ifndef container_of
-# define container_of(ptr, type, member) \
-  ((type *) ((char *) (ptr) - offset_of(type, member)))
-#endif
+#include "common.h"
 
 namespace tlsnappy {
 
@@ -298,6 +287,10 @@ Handle<Value> Socket::New(const Arguments& args) {
 Socket::Socket(Context* ctx) : status_(kRunning),
                                err_(0),
                                sent_shutdown_(false),
+                               enc_in_(&ctx->slab_),
+                               enc_out_(&ctx->slab_),
+                               clear_in_(&ctx->slab_),
+                               clear_out_(&ctx->slab_),
                                ctx_(ctx) {
   ctx_->Ref();
   ssl_ = ctx_->GetSSL();
