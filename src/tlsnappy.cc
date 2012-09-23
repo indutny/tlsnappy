@@ -287,10 +287,10 @@ Handle<Value> Socket::New(const Arguments& args) {
 Socket::Socket(Context* ctx) : status_(kRunning),
                                err_(0),
                                sent_shutdown_(false),
-                               enc_in_(&ctx->slab_),
-                               enc_out_(&ctx->slab_),
-                               clear_in_(&ctx->slab_),
-                               clear_out_(&ctx->slab_),
+                               enc_in_(&ctx->senc_in_),
+                               enc_out_(&ctx->senc_out_),
+                               clear_in_(&ctx->sclear_in_),
+                               clear_out_(&ctx->sclear_out_),
                                ctx_(ctx) {
   ctx_->Ref();
   ssl_ = ctx_->GetSSL();

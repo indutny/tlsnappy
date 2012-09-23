@@ -18,6 +18,7 @@ class RingSlab {
   RingSlab() {
     ngx_queue_init(&head_);
   }
+
   ~RingSlab() {
     while (!ngx_queue_empty(&head_)) {
       delete Dequeue();
@@ -26,6 +27,7 @@ class RingSlab {
 
   inline void Enqueue(RingBuffer* buffer) {
     buffer->offset = 0;
+    ngx_queue_remove(&buffer->member);
     ngx_queue_insert_tail(&head_, &buffer->member);
   }
 
@@ -57,7 +59,7 @@ class Ring {
 
   ~Ring() {
     while (!ngx_queue_empty(&head_)) {
-      slab_->Enqueue(container_of(ngx_queue_head(&head_), RingBuffer, member));
+      slab_->Enqueue(head());
     }
   }
 
