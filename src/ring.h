@@ -8,9 +8,9 @@
 #include "common.h"
 
 struct RingBuffer {
-  char data[4 * 1024];
-  int offset;
   ngx_queue_t member;
+  int offset;
+  char data[4 * 1024];
 };
 
 class RingSlab {
@@ -116,7 +116,7 @@ class Ring {
 
       head()->offset -= bytes;
 
-      data += bytes;
+      if (data != NULL) data += bytes;
       total_ -= bytes;
       left -= bytes;
 

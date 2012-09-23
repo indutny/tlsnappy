@@ -6,7 +6,13 @@ var options = {
   cert: fs.readFileSync(__dirname + '/../keys/server.crt')
 };
 
+var big = new Array(1024).join('abc');
+
 var server = tlsnappy.createServer(options, function(req, res) {
+  if (req.url === '/big') {
+    return res.end(big);
+  }
+
   res.end('hello world');
   if (req.url === '/exit') {
     server.close(function() {
