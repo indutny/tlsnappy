@@ -36,7 +36,12 @@ class Context : public ObjectWrap {
   static Handle<Value> New(const Arguments& args);
   static Handle<Value> SetKey(const Arguments& args);
   static Handle<Value> SetCert(const Arguments& args);
+  static Handle<Value> SetNPN(const Arguments& args);
 
+  static int Advertise(SSL *s,
+                       const unsigned char **data,
+                       unsigned int *len,
+                       void *arg);
   static void Loop(void* arg);
   bool RunLoop();
   RingSlab senc_in_;
@@ -46,8 +51,11 @@ class Context : public ObjectWrap {
 
   // Worker data
   volatile Status status_;
+  unsigned char* npn_;
+  int npn_len_;
   uv_sem_t event_;
   uv_mutex_t queue_mtx_;
+  uv_mutex_t mtx_;
   ngx_queue_t queue_;
   uv_thread_t worker_;
 
@@ -81,6 +89,7 @@ class Socket : public ObjectWrap {
   static void EncOut(uv_async_t* handle, int status);
   static void OnClose(uv_async_t* handle, int status);
   static void OnError(uv_async_t* handle, int status);
+  static void OnInit(uv_async_t* handle, int status);
 
   volatile Status status_;
   int err_;
@@ -94,8 +103,10 @@ class Socket : public ObjectWrap {
   uv_async_t* enc_out_cb_;
   uv_async_t* close_cb_;
   uv_async_t* err_cb_;
+  uv_async_t* init_cb_;
 
   void OnEvent();
+  void TryGetNPN();
 
   uv_mutex_t enc_in_mtx_;
   uv_mutex_t enc_out_mtx_;
@@ -107,6 +118,8 @@ class Socket : public ObjectWrap {
   BIO* wbio_;
   SSL* ssl_;
 
+  char* npn_;
+  int npn_len_;
   ngx_queue_t member_;
 
   friend class Context;

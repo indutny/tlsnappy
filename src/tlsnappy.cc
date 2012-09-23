@@ -16,8 +16,8 @@ using namespace node;
 
 static Persistent<String> onedata_sym;
 static Persistent<String> oncdata_sym;
-static Persistent<String> onhandshake_sym;
 static Persistent<String> onclose_sym;
+static Persistent<String> oninit_sym;
 
 Handle<Value> Context::New(const Arguments& args) {
   HandleScope scope;
@@ -30,7 +30,7 @@ Handle<Value> Context::New(const Arguments& args) {
 }
 
 
-Context::Context() : status_(kRunning) {
+Context::Context() : status_(kRunning), npn_(NULL) {
   ctx_ = SSL_CTX_new(SSLv23_method());
   assert(ctx_ != NULL);
 
@@ -41,8 +41,12 @@ Context::Context() : status_(kRunning) {
                             SSL_SESS_CACHE_NO_INTERNAL |
                             SSL_SESS_CACHE_NO_AUTO_CLEAR);
 
+  // NPN
+  SSL_CTX_set_next_protos_advertised_cb(ctx_, Context::Advertise, this);
+
   if (uv_sem_init(&event_, 0)) abort();
   if (uv_mutex_init(&queue_mtx_)) abort();
+  if (uv_mutex_init(&mtx_)) abort();
   ngx_queue_init(&queue_);
 
   if (uv_thread_create(&worker_, Context::Loop, this)) abort();
@@ -50,9 +54,6 @@ Context::Context() : status_(kRunning) {
 
 
 Context::~Context() {
-  SSL_CTX_free(ctx_);
-  ctx_ = NULL;
-
   // Notify worker about stop event
   status_ = kStopped;
   uv_sem_post(&event_);
@@ -62,6 +63,33 @@ Context::~Context() {
 
   uv_sem_destroy(&event_);
   uv_mutex_destroy(&queue_mtx_);
+  uv_mutex_destroy(&mtx_);
+
+  SSL_CTX_free(ctx_);
+  ctx_ = NULL;
+
+  delete[] npn_;
+  npn_ = NULL;
+  npn_len_ = 0;
+}
+
+
+int Context::Advertise(SSL *s,
+                       const unsigned char **data,
+                       unsigned int *len,
+                       void *arg) {
+  Context* c = reinterpret_cast<Context*>(arg);
+  uv_mutex_lock(&c->mtx_);
+  if (c->npn_ != NULL) {
+    *data = c->npn_;
+    *len = c->npn_len_;
+  } else {
+    *data = reinterpret_cast<const unsigned char*>("");
+    *len = 0;
+  }
+  uv_mutex_unlock(&c->mtx_);
+
+  return SSL_TLSEXT_ERR_OK;
 }
 
 
@@ -136,7 +164,36 @@ BIO* LoadBIO(Handle<Value> v) {
 }
 
 
+Handle<Value> Context::SetNPN(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  Context* ctx = ObjectWrap::Unwrap<Context>(args.This());
+
+  if (ctx->npn_ != NULL) {
+    return ThrowException(String::New("SetNPN can be called only once"));
+  }
+
+  char* data = Buffer::Data(args[0].As<Object>());
+  size_t len = Buffer::Length(args[0].As<Object>());
+  unsigned char* npn = new unsigned char[len];
+  memcpy(npn, data, len);
+
+  uv_mutex_lock(&ctx->mtx_);
+  ctx->npn_ = npn;
+  ctx->npn_len_ = len;
+  uv_mutex_unlock(&ctx->mtx_);
+
+  return Null();
+}
+
+
 Handle<Value> Context::SetKey(const Arguments& args) {
+  HandleScope scope;
+
   if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
@@ -291,7 +348,9 @@ Socket::Socket(Context* ctx) : status_(kRunning),
                                enc_out_(&ctx->senc_out_),
                                clear_in_(&ctx->sclear_in_),
                                clear_out_(&ctx->sclear_out_),
-                               ctx_(ctx) {
+                               ctx_(ctx),
+                               npn_(NULL),
+                               npn_len_(-1) {
   ctx_->Ref();
   ssl_ = ctx_->GetSSL();
 
@@ -307,12 +366,13 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_mutex_init(&clear_in_mtx_)) abort();
   if (uv_mutex_init(&clear_out_mtx_)) abort();
 
-  uv_async_t** handles[4] = { &enc_out_cb_,
+  uv_async_t** handles[5] = { &enc_out_cb_,
                               &clear_out_cb_,
                               &close_cb_,
-                              &err_cb_ };
+                              &err_cb_,
+                              &init_cb_ };
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     uv_async_t* handle = new uv_async_t();
 
     handle->data = this;
@@ -323,6 +383,7 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_async_init(uv_default_loop(), clear_out_cb_, ClearOut)) abort();
   if (uv_async_init(uv_default_loop(), close_cb_, OnClose)) abort();
   if (uv_async_init(uv_default_loop(), err_cb_, OnError)) abort();
+  if (uv_async_init(uv_default_loop(), init_cb_, OnInit)) abort();
 
   ngx_queue_init(&member_);
 }
@@ -343,10 +404,17 @@ Socket::~Socket() {
   uv_mutex_destroy(&clear_in_mtx_);
   uv_mutex_destroy(&clear_out_mtx_);
 
-  uv_async_t* handles[4] = { enc_out_cb_, clear_out_cb_, close_cb_, err_cb_ };
-  for (int i = 0; i < 4; i++) {
+  uv_async_t* handles[5] = { enc_out_cb_,
+                             clear_out_cb_,
+                             close_cb_,
+                             err_cb_,
+                             init_cb_ };
+  for (int i = 0; i < 5; i++) {
     uv_close(reinterpret_cast<uv_handle_t*>(handles[i]), OnAsyncClose);
   }
+
+  delete[] npn_;
+  npn_ = NULL;
 }
 
 
@@ -499,6 +567,38 @@ void Socket::OnError(uv_async_t* handle, int status) {
 }
 
 
+void Socket::OnInit(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
+
+  Handle<Value> argv[1] = { String::New(const_cast<char*>(s->npn_),
+                                        s->npn_len_) };
+  MakeCallback(s->handle_, oninit_sym, 1, argv);
+}
+
+
+void Socket::TryGetNPN() {
+  if (!SSL_is_init_finished(ssl_)) return;
+
+  // Read NPN info if we didn't before
+  if (npn_len_ == -1) {
+    const unsigned char* npn;
+    unsigned int len;
+    SSL_get0_next_proto_negotiated(ssl_, &npn, &len);
+    if (npn == NULL) {
+      npn_len_ = 0;
+      npn_ = NULL;
+    } else {
+      npn_len_ = len;
+      npn_ = new char[len];
+      memcpy(npn_, npn, len);
+    }
+  }
+
+  uv_async_send(init_cb_);
+}
+
+
 void Socket::OnEvent() {
   int r;
   int err;
@@ -565,11 +665,14 @@ void Socket::OnEvent() {
   } while (bytes > 0);
 
 emit_data:
+  TryGetNPN();
 
   do {
     // Read clear data
     bytes = SSL_read(ssl_, data, sizeof(data));
     if (bytes > 0) {
+      TryGetNPN();
+
       uv_mutex_lock(&clear_out_mtx_);
       clear_out_.Write(data, bytes);
       uv_mutex_unlock(&clear_out_mtx_);
@@ -601,6 +704,7 @@ emit_data:
       uv_mutex_lock(&enc_out_mtx_);
       enc_out_.Write(data, bytes);
       uv_mutex_unlock(&enc_out_mtx_);
+      TryGetNPN();
 
       uv_async_send(enc_out_cb_);
     }
@@ -642,6 +746,7 @@ void Context::Init(Handle<Object> target) {
 
   NODE_SET_PROTOTYPE_METHOD(t, "setKey", Context::SetKey);
   NODE_SET_PROTOTYPE_METHOD(t, "setCert", Context::SetCert);
+  NODE_SET_PROTOTYPE_METHOD(t, "setNPN", Context::SetNPN);
 
   target->Set(String::NewSymbol("Context"), t->GetFunction());
 }
@@ -666,8 +771,8 @@ void Init(Handle<Object> target) {
 
   onedata_sym = Persistent<String>::New(String::NewSymbol("onedata"));
   oncdata_sym = Persistent<String>::New(String::NewSymbol("oncdata"));
-  onhandshake_sym = Persistent<String>::New(String::NewSymbol("onhandshake"));
   onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
+  oninit_sym = Persistent<String>::New(String::NewSymbol("oninit"));
 
   Context::Init(target);
   Socket::Init(target);
