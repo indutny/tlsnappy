@@ -362,6 +362,7 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_mutex_init(&enc_out_mtx_)) abort();
   if (uv_mutex_init(&clear_in_mtx_)) abort();
   if (uv_mutex_init(&clear_out_mtx_)) abort();
+  if (uv_mutex_init(&status_mtx_)) abort();
 
   uv_async_t** handles[5] = { &enc_out_cb_,
                               &clear_out_cb_,
@@ -400,6 +401,7 @@ Socket::~Socket() {
   uv_mutex_destroy(&enc_out_mtx_);
   uv_mutex_destroy(&clear_in_mtx_);
   uv_mutex_destroy(&clear_out_mtx_);
+  uv_mutex_destroy(&status_mtx_);
 
   uv_async_t* handles[5] = { enc_out_cb_,
                              clear_out_cb_,
@@ -458,12 +460,12 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 Handle<Value> Socket::Close(const Arguments& args) {
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  if (s->status_ != kRunning) {
-    return Null();
+  uv_mutex_lock(&s->status_mtx_);
+  if (s->status_ == kRunning) {
+    s->status_ = kClosing;
+    s->ctx_->Enqueue(s);
   }
-
-  s->status_ = kClosing;
-  s->ctx_->Enqueue(s);
+  uv_mutex_unlock(&s->status_mtx_);
 
   return Null();
 }
@@ -486,7 +488,9 @@ void Socket::ClearOut(uv_async_t* handle, int status) {
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, oncdata_sym, 1, argv);
 
+  uv_mutex_lock(&s->status_mtx_);
   if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
+  uv_mutex_unlock(&s->status_mtx_);
 }
 
 
@@ -507,7 +511,9 @@ void Socket::EncOut(uv_async_t* handle, int status) {
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, onedata_sym, 1, argv);
 
+  uv_mutex_lock(&s->status_mtx_);
   if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
+  uv_mutex_unlock(&s->status_mtx_);
 }
 
 
@@ -536,7 +542,9 @@ void Socket::OnClose(uv_async_t* handle, int status) {
 
   if (bytes != 0) return;
 
+  uv_mutex_lock(&s->status_mtx_);
   s->status_ = kClosed;
+  uv_mutex_unlock(&s->status_mtx_);
   MakeCallback(s->handle_, onclose_sym, 0, NULL);
   s->Unref();
 }
@@ -548,7 +556,9 @@ void Socket::OnError(uv_async_t* handle, int status) {
 
   // Stop accepting incoming data on error
   if (s->status_ >= kHalfClosed) return;
+  uv_mutex_lock(&s->status_mtx_);
   s->status_ = kHalfClosed;
+  uv_mutex_unlock(&s->status_mtx_);
 
   // Flush all incoming data
   uv_mutex_lock(&s->clear_in_mtx_);
@@ -720,8 +730,9 @@ emit_data:
     // All remaining data was written to socket
     // and shutdown packet was sent
     if (bytes == 0 && sent_shutdown_) {
-
+      uv_mutex_lock(&status_mtx_);
       status_ = kHalfClosed;
+      uv_mutex_unlock(&status_mtx_);
       uv_async_send(close_cb_);
     } else {
       // Ignore return value
