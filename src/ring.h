@@ -9,13 +9,13 @@
 
 class RingBuffer {
  public:
-  RingBuffer() {
+  RingBuffer() : offset(0) {
     ngx_queue_init(&member);
-    offset = 0;
   }
 
   static inline RingBuffer* FromMember(ngx_queue_t* member) {
-    return container_of(member, RingBuffer, member);
+    RingBuffer* result = container_of(member, RingBuffer, member);
+    return result;
   }
 
   ngx_queue_t member;
@@ -26,6 +26,7 @@ class RingBuffer {
 class RingSlab {
  public:
   RingSlab() {
+    uv_mutex_init(&mtx_);
     ngx_queue_init(&queue_);
   }
 
@@ -33,30 +34,43 @@ class RingSlab {
     while (!ngx_queue_empty(&queue_)) {
       delete Dequeue();
     }
+    uv_mutex_destroy(&mtx_);
   }
 
   inline void Enqueue(RingBuffer* buffer) {
     // Remove buffer from it's previous queue
     ngx_queue_remove(&buffer->member);
 
-    // Insert buffer into current queue
-    ngx_queue_insert_tail(&queue_, &buffer->member);
+    // Insert buffer into current FIFO
+    uv_mutex_lock(&mtx_);
+    ngx_queue_insert_head(&queue_, &buffer->member);
+    uv_mutex_unlock(&mtx_);
   }
 
   inline RingBuffer* Dequeue() {
-    if (ngx_queue_empty(&queue_)) {
+    RingBuffer* r;
+
+    if (uv_mutex_trylock(&mtx_)) {
       return new RingBuffer();
     }
 
-    ngx_queue_t* member = ngx_queue_head(&queue_);
-    ngx_queue_remove(member);
+    if (ngx_queue_empty(&queue_)) {
+      uv_mutex_unlock(&mtx_);
+      r = new RingBuffer();
+    } else {
+      ngx_queue_t* member = ngx_queue_head(&queue_);
+      ngx_queue_remove(member);
+      uv_mutex_unlock(&mtx_);
 
-    RingBuffer* r = RingBuffer::FromMember(member);
-    r->offset = 0;
+      r = RingBuffer::FromMember(member);
+      r->offset = 0;
+    }
+
     return r;
   }
 
  private:
+  uv_mutex_t mtx_;
   ngx_queue_t queue_;
 };
 
@@ -111,6 +125,7 @@ class Ring {
         ngx_queue_insert_tail(&queue_, &b->member);
       }
     }
+    assert(size == offset);
   }
 
   inline int Read(char* data, int size) {
