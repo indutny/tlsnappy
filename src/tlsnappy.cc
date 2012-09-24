@@ -142,7 +142,9 @@ bool Context::RunLoop() {
   // Continue looping if there're no sockets yet
   if (socket == NULL) return true;
 
+  uv_mutex_lock(&socket->event_mtx_);
   socket->OnEvent();
+  uv_mutex_unlock(&socket->event_mtx_);
 
   return true;
 }
@@ -363,6 +365,7 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_mutex_init(&clear_in_mtx_)) abort();
   if (uv_mutex_init(&clear_out_mtx_)) abort();
   if (uv_mutex_init(&status_mtx_)) abort();
+  if (uv_mutex_init(&event_mtx_)) abort();
 
   uv_async_t** handles[5] = { &enc_out_cb_,
                               &clear_out_cb_,
@@ -393,6 +396,9 @@ void OnAsyncClose(uv_handle_t* handle) {
 
 
 Socket::~Socket() {
+  uv_mutex_lock(&event_mtx_);
+  uv_mutex_unlock(&event_mtx_);
+
   assert(ngx_queue_empty(&member_));
   SSL_free(ssl_);
   ctx_->Unref();
@@ -402,6 +408,7 @@ Socket::~Socket() {
   uv_mutex_destroy(&clear_in_mtx_);
   uv_mutex_destroy(&clear_out_mtx_);
   uv_mutex_destroy(&status_mtx_);
+  uv_mutex_destroy(&event_mtx_);
 
   uv_async_t* handles[5] = { enc_out_cb_,
                              clear_out_cb_,

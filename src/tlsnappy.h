@@ -88,6 +88,7 @@ class Socket : public ObjectWrap {
   static void OnInit(uv_async_t* handle, int status);
 
   uv_mutex_t status_mtx_;
+  uv_mutex_t event_mtx_;
   volatile Status status_;
   int err_;
   bool sent_shutdown_;
