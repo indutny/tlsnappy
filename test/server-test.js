@@ -6,7 +6,8 @@ var assert = require('assert'),
 describe('TLSnappy', function() {
   var options = {
         key: fs.readFileSync(__dirname + '/../keys/server.key'),
-        cert: fs.readFileSync(__dirname + '/../keys/server.crt')
+        cert: fs.readFileSync(__dirname + '/../keys/server.crt'),
+        rejectUnauthorized: false
       },
       server;
 
