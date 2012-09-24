@@ -7,7 +7,17 @@
 #include "ngx-queue.h"
 #include "common.h"
 
-struct RingBuffer {
+class RingBuffer {
+ public:
+  RingBuffer() {
+    ngx_queue_init(&member);
+    offset = 0;
+  }
+
+  static inline RingBuffer* FromMember(ngx_queue_t* member) {
+    return container_of(member, RingBuffer, member);
+  }
+
   ngx_queue_t member;
   int offset;
   char data[4 * 1024];
@@ -16,146 +26,155 @@ struct RingBuffer {
 class RingSlab {
  public:
   RingSlab() {
-    ngx_queue_init(&head_);
+    ngx_queue_init(&queue_);
   }
 
   ~RingSlab() {
-    while (!ngx_queue_empty(&head_)) {
+    while (!ngx_queue_empty(&queue_)) {
       delete Dequeue();
     }
   }
 
   inline void Enqueue(RingBuffer* buffer) {
-    buffer->offset = 0;
+    // Remove buffer from it's previous queue
     ngx_queue_remove(&buffer->member);
-    ngx_queue_insert_tail(&head_, &buffer->member);
+
+    // Insert buffer into current queue
+    ngx_queue_insert_tail(&queue_, &buffer->member);
   }
 
   inline RingBuffer* Dequeue() {
-    if (ngx_queue_empty(&head_)) {
-      RingBuffer* buffer = new RingBuffer();
-      ngx_queue_init(&buffer->member);
-      buffer->offset = 0;
-      return buffer;
+    if (ngx_queue_empty(&queue_)) {
+      return new RingBuffer();
     }
 
-    ngx_queue_t* member = ngx_queue_head(&head_);
+    ngx_queue_t* member = ngx_queue_head(&queue_);
     ngx_queue_remove(member);
-    return container_of(member, RingBuffer, member);
+
+    RingBuffer* r = RingBuffer::FromMember(member);
+    r->offset = 0;
+    return r;
   }
 
  private:
-  ngx_queue_t head_;
+  ngx_queue_t queue_;
 };
 
 class Ring {
  public:
-  Ring(RingSlab* slab) : slab_(slab), tail_(NULL), total_(0) {
-    RingBuffer* buff = slab_->Dequeue();
-    ngx_queue_init(&head_);
-    ngx_queue_insert_tail(&head_, &buff->member);
-    tail_ = ngx_queue_head(&head_);
+  Ring(RingSlab* slab) : slab_(slab), total_(0) {
+    ngx_queue_init(&queue_);
+    RingBuffer* buffer = slab_->Dequeue();
+    ngx_queue_insert_head(&queue_, &buffer->member);
   }
 
   ~Ring() {
-    while (!ngx_queue_empty(&head_)) {
+    // Return all buffers into slab
+    while (!ngx_queue_empty(&queue_)) {
       slab_->Enqueue(head());
     }
   }
 
   inline RingBuffer* head() {
-    return container_of(ngx_queue_head(&head_), RingBuffer, member);
+    assert(!ngx_queue_empty(&queue_));
+    return RingBuffer::FromMember(ngx_queue_head(&queue_));
   }
 
   inline RingBuffer* tail() {
-    return container_of(tail_, RingBuffer, member);
-  }
-
-  inline void Write(char* data, int size) {
-    total_ += size;
-    while (size > 0) {
-      int left = sizeof(tail()->data) - tail()->offset;
-      int bytes = left > size ? size : left;
-
-      memcpy(tail()->data + tail()->offset, data, bytes);
-      tail()->offset += bytes;
-
-      data += bytes;
-      size -= bytes;
-
-      // tail_ is full now - create new buffer or use next one
-      if (left == bytes) {
-        if (ngx_queue_next(&tail()->member) != &head_) {
-          tail_ = ngx_queue_next(&tail()->member);
-        } else {
-          RingBuffer* b = slab_->Dequeue();
-          ngx_queue_insert_tail(&head_, &b->member);
-          tail_ = &b->member;
-        }
-      }
-    }
+    assert(!ngx_queue_empty(&queue_));
+    return RingBuffer::FromMember(ngx_queue_last(&queue_));
   }
 
   inline int Size() {
     return total_;
   }
 
-  inline int Read(char* data, int size) {
+  inline void Write(char* data, int size) {
     int left = size;
+    int offset = 0;
+    RingBuffer* b = tail();
 
-    while (left > 0 && Size() > 0) {
-      int bytes = head()->offset > left ? left : head()->offset;
+    while (left > 0) {
+      int available = sizeof(b->data) - b->offset;
+      int bytes = available > left ? left : available;
 
-      // If there is output buffer
-      if (data != NULL) memcpy(data, head()->data, bytes);
-
-      // Move rest to the start of buffer
-      if (bytes < head()->offset) {
-        memmove(head()->data, head()->data + head()->offset - bytes, bytes);
-      }
-
-      head()->offset -= bytes;
-
-      if (data != NULL) data += bytes;
-      total_ -= bytes;
+      assert(static_cast<size_t>(b->offset + bytes) <= sizeof(b->data));
+      memcpy(b->data + b->offset, data + offset, bytes);
+      b->offset += bytes;
+      offset += bytes;
+      total_ += bytes;
       left -= bytes;
 
-      // If head is empty now, move it to the end of ring
-      if (head()->offset == 0) {
-        ngx_queue_t* head = ngx_queue_head(&head_);
-        ngx_queue_remove(head);
-        ngx_queue_insert_tail(&head_, head);
+      if (b->offset == sizeof(b->data)) {
+        // Tail is full now - get a new one
+        b = slab_->Dequeue();
+        ngx_queue_insert_tail(&queue_, &b->member);
+      }
+    }
+  }
+
+  inline int Read(char* data, int size) {
+    int left = size;
+    int offset = 0;
+
+    while (total_ > 0 && left > 0) {
+      RingBuffer* b = head();
+      int bytes = b->offset > left ? left : b->offset;
+
+      // Copy only if there's place to save data
+      if (data != NULL) {
+        assert(b->offset >= bytes);
+        memcpy(data + offset, b->data, bytes);
+      }
+
+      b->offset -= bytes;
+      left -= bytes;
+      offset += bytes;
+      total_ -= bytes;
+      assert(b->offset >= 0);
+      assert(total_ >= 0);
+
+      if (b->offset != 0) {
+        // Move remaining bytes left
+        memmove(b->data, b->data + bytes, b->offset);
+      } else {
+        // Enqueue buffer into slab if it's empty
+        // (but do not remove head)
+        if (total_ != 0) {
+          slab_->Enqueue(b);
+          assert(!ngx_queue_empty(&queue_));
+        }
       }
     }
 
-    return size - left;
+    return offset;
   }
 
   inline int Peek(char* data, int size) {
     int left = size;
+    int offset = 0;
     RingBuffer* current = head();
 
     while (left > 0) {
       int bytes = current->offset > left ? left : current->offset;
 
-      memcpy(data, current->data, bytes);
+      memcpy(data + offset, current->data, bytes);
 
-      data += bytes;
+      offset += bytes;
       left -= bytes;
 
       ngx_queue_t* next = ngx_queue_next(&current->member);
-      if (next == &head_) break;
+      if (next == &queue_) break;
 
-      current = container_of(next, RingBuffer, member);
+      current = RingBuffer::FromMember(next);
     }
 
-    return size - left;
+    return offset;
   }
 
  private:
   RingSlab* slab_;
-  ngx_queue_t head_;
-  ngx_queue_t* tail_;
+  ngx_queue_t queue_;
   int total_;
 };
 
