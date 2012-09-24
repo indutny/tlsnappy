@@ -44,10 +44,6 @@ class Context : public ObjectWrap {
                        void *arg);
   static void Loop(void* arg);
   bool RunLoop();
-  RingSlab senc_in_;
-  RingSlab senc_out_;
-  RingSlab sclear_in_;
-  RingSlab sclear_out_;
 
   // Worker data
   volatile Status status_;

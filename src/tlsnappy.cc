@@ -345,10 +345,6 @@ Handle<Value> Socket::New(const Arguments& args) {
 Socket::Socket(Context* ctx) : status_(kRunning),
                                err_(0),
                                sent_shutdown_(false),
-                               enc_in_(&ctx->senc_in_),
-                               enc_out_(&ctx->senc_out_),
-                               clear_in_(&ctx->sclear_in_),
-                               clear_out_(&ctx->sclear_out_),
                                ctx_(ctx),
                                npn_(NULL),
                                npn_len_(-1) {

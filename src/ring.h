@@ -23,69 +23,20 @@ class RingBuffer {
   char data[4 * 1024];
 };
 
-class RingSlab {
- public:
-  RingSlab() {
-    uv_mutex_init(&mtx_);
-    ngx_queue_init(&queue_);
-  }
-
-  ~RingSlab() {
-    while (!ngx_queue_empty(&queue_)) {
-      delete Dequeue();
-    }
-    uv_mutex_destroy(&mtx_);
-  }
-
-  inline void Enqueue(RingBuffer* buffer) {
-    // Remove buffer from it's previous queue
-    ngx_queue_remove(&buffer->member);
-
-    // Insert buffer into current FIFO
-    uv_mutex_lock(&mtx_);
-    ngx_queue_insert_head(&queue_, &buffer->member);
-    uv_mutex_unlock(&mtx_);
-  }
-
-  inline RingBuffer* Dequeue() {
-    RingBuffer* r;
-
-    if (uv_mutex_trylock(&mtx_)) {
-      return new RingBuffer();
-    }
-
-    if (ngx_queue_empty(&queue_)) {
-      uv_mutex_unlock(&mtx_);
-      r = new RingBuffer();
-    } else {
-      ngx_queue_t* member = ngx_queue_head(&queue_);
-      ngx_queue_remove(member);
-      uv_mutex_unlock(&mtx_);
-
-      r = RingBuffer::FromMember(member);
-      r->offset = 0;
-    }
-
-    return r;
-  }
-
- private:
-  uv_mutex_t mtx_;
-  ngx_queue_t queue_;
-};
-
 class Ring {
  public:
-  Ring(RingSlab* slab) : slab_(slab), total_(0) {
+  Ring() : total_(0) {
     ngx_queue_init(&queue_);
-    RingBuffer* buffer = slab_->Dequeue();
+    RingBuffer* buffer = new RingBuffer();
     ngx_queue_insert_head(&queue_, &buffer->member);
   }
 
   ~Ring() {
     // Return all buffers into slab
     while (!ngx_queue_empty(&queue_)) {
-      slab_->Enqueue(head());
+      RingBuffer* b = head();
+      ngx_queue_remove(&b->member);
+      delete b;
     }
   }
 
@@ -121,7 +72,7 @@ class Ring {
 
       if (b->offset == sizeof(b->data)) {
         // Tail is full now - get a new one
-        b = slab_->Dequeue();
+        b = new RingBuffer();
         ngx_queue_insert_tail(&queue_, &b->member);
       }
     }
@@ -156,7 +107,8 @@ class Ring {
         // Enqueue buffer into slab if it's empty
         // (but do not remove head)
         if (total_ != 0) {
-          slab_->Enqueue(b);
+          ngx_queue_remove(&b->member);
+          delete b;
           assert(!ngx_queue_empty(&queue_));
         }
       }
@@ -188,7 +140,6 @@ class Ring {
   }
 
  private:
-  RingSlab* slab_;
   ngx_queue_t queue_;
   int total_;
 };
