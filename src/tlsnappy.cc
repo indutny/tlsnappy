@@ -146,7 +146,7 @@ bool Context::RunLoop() {
 BIO* LoadBIO(Handle<Value> v) {
   HandleScope scope;
 
-  BIO* bio = BIO_new(BIO_s_mem());
+  BIO* bio = BIO_new(BIO_snappy());
   assert(bio != NULL);
 
   int r = -1;
@@ -346,8 +346,8 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   ctx_->Ref();
   ssl_ = ctx_->GetSSL();
 
-  rbio_ = BIO_new(BIO_s_mem());
-  wbio_ = BIO_new(BIO_s_mem());
+  rbio_ = BIO_new(BIO_snappy());
+  wbio_ = BIO_new(BIO_snappy());
   assert(rbio_ != NULL);
   assert(wbio_ != NULL);
   SSL_set_bio(ssl_, rbio_, wbio_);
