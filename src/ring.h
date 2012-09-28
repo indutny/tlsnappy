@@ -27,8 +27,7 @@ class Ring {
  public:
   Ring() : total_(0) {
     ngx_queue_init(&queue_);
-    RingBuffer* buffer = new RingBuffer();
-    ngx_queue_insert_head(&queue_, &buffer->member);
+    ngx_queue_insert_head(&queue_, &head_.member);
   }
 
   ~Ring() {
@@ -36,7 +35,7 @@ class Ring {
     while (!ngx_queue_empty(&queue_)) {
       RingBuffer* b = head();
       ngx_queue_remove(&b->member);
-      delete b;
+      if (b != &head_) delete b;
     }
   }
 
@@ -103,14 +102,10 @@ class Ring {
       if (b->offset != 0) {
         // Move remaining bytes left
         memmove(b->data, b->data + bytes, b->offset);
-      } else {
-        // Enqueue buffer into slab if it's empty
-        // (but do not remove head)
-        if (total_ != 0) {
-          ngx_queue_remove(&b->member);
-          delete b;
-          assert(!ngx_queue_empty(&queue_));
-        }
+      } else if (tail() != b) {
+        // Move buffer to the end of queue
+        ngx_queue_remove(&b->member);
+        ngx_queue_insert_tail(&queue_, &b->member);
       }
     }
 
@@ -141,6 +136,7 @@ class Ring {
 
  private:
   ngx_queue_t queue_;
+  RingBuffer head_;
   int total_;
 };
 
