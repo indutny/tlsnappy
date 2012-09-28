@@ -522,7 +522,7 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   }
 
   // Write all output data
-  ClearOut(s->enc_out_cb_, 0);
+  ClearOut(s->clear_out_cb_, 0);
   EncOut(s->enc_out_cb_, 0);
 
   s->closed_ = true;
@@ -582,10 +582,17 @@ void Socket::TryGetNPN() {
 
 void Socket::Shutdown() {
   if (closing_ != 2) {
-    int r = SSL_shutdown(ssl_);
-
     // Emit event anyway
     uv_async_send(close_cb_);
+
+    int bytes = 0;
+    uv_mutex_lock(&clear_in_mtx_);
+    bytes = clear_in_.Size();
+    uv_mutex_unlock(&clear_in_mtx_);
+
+    // Do not send shutdown if data wasn't transferred to the client
+    if (bytes != 0) return;
+    int r = SSL_shutdown(ssl_);
 
     if (r != 0) {
       int err = SSL_get_error(ssl_, r);
@@ -630,61 +637,26 @@ loop_entry:
     }
   } while (enc_bytes == sizeof(enc_data));
 
-  if (closing_ != 2) {
-    do {
-      // Write clear data
-      uv_mutex_lock(&clear_in_mtx_);
-      bytes = clear_in_.Peek(data, sizeof(data));
-      uv_mutex_unlock(&clear_in_mtx_);
+  do {
+    // Write clear data
+    uv_mutex_lock(&clear_in_mtx_);
+    bytes = clear_in_.Peek(data, sizeof(data));
+    uv_mutex_unlock(&clear_in_mtx_);
 
-      if (bytes > 0) {
-        r = SSL_write(ssl_, data, bytes);
-        if (r > 0) {
-          // Flush read data
-          uv_mutex_lock(&clear_in_mtx_);
-          clear_in_.Read(NULL, r);
-          uv_mutex_unlock(&clear_in_mtx_);
+    if (bytes > 0) {
+      r = SSL_write(ssl_, data, bytes);
+      if (r > 0) {
+        // Flush read data
+        uv_mutex_lock(&clear_in_mtx_);
+        clear_in_.Read(NULL, r);
+        uv_mutex_unlock(&clear_in_mtx_);
 
-          // Loop until all data will be written
-          if (r < bytes) continue;
-        } else {
-          err = SSL_get_error(ssl_, r);
-          if (err == SSL_ERROR_ZERO_RETURN) {
-            // Ignore
-          } else if (err == SSL_ERROR_WANT_READ) {
-            // Ignore
-            break;
-          } else if (err == SSL_ERROR_WANT_WRITE) {
-            want_write_ = true;
-            break;
-          } else {
-            if (err_ == 0) {
-              err_ = err;
-              HandleError(err);
-            }
-            break;
-          }
-        }
-      }
-    } while (bytes > 0);
-
-    if (want_write_) goto do_write;
-
-    TryGetNPN();
-
-    do {
-      // Read clear data
-      bytes = SSL_read(ssl_, data, sizeof(data));
-      if (bytes > 0) {
-        TryGetNPN();
-
-        uv_mutex_lock(&clear_out_mtx_);
-        clear_out_.Write(data, bytes);
-        uv_mutex_unlock(&clear_out_mtx_);
-
-        uv_async_send(clear_out_cb_);
+        // Loop until all data will be written
+        if (r < bytes) continue;
       } else {
-        err = SSL_get_error(ssl_, bytes);
+        err = SSL_get_error(ssl_, r);
+        if (closing_ == 2) break;
+
         if (err == SSL_ERROR_ZERO_RETURN) {
           // Ignore
         } else if (err == SSL_ERROR_WANT_READ) {
@@ -692,6 +664,7 @@ loop_entry:
           break;
         } else if (err == SSL_ERROR_WANT_WRITE) {
           want_write_ = true;
+          break;
         } else {
           if (err_ == 0) {
             err_ = err;
@@ -700,10 +673,40 @@ loop_entry:
           break;
         }
       }
-    } while (bytes > 0);
+    }
+  } while (bytes > 0);
 
-    if (want_write_) goto do_write;
-  }
+  TryGetNPN();
+
+  do {
+    // Read clear data
+    bytes = SSL_read(ssl_, data, sizeof(data));
+    if (bytes > 0) {
+      TryGetNPN();
+
+      uv_mutex_lock(&clear_out_mtx_);
+      clear_out_.Write(data, bytes);
+      uv_mutex_unlock(&clear_out_mtx_);
+
+      uv_async_send(clear_out_cb_);
+    } else if (closing_ != 2) {
+      err = SSL_get_error(ssl_, bytes);
+      if (err == SSL_ERROR_ZERO_RETURN) {
+        // Ignore
+      } else if (err == SSL_ERROR_WANT_READ) {
+        // Ignore
+        break;
+      } else if (err == SSL_ERROR_WANT_WRITE) {
+        want_write_ = true;
+      } else {
+        if (err_ == 0) {
+          err_ = err;
+          HandleError(err);
+        }
+        break;
+      }
+    }
+  } while (bytes > 0);
 
 do_write:
   // Read encrypted data
