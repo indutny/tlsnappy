@@ -90,7 +90,7 @@ int Context::Advertise(SSL *s,
 void Context::Enqueue(Socket* s) {
   uv_mutex_lock(&queue_mtx_);
   // Prevent double insertions
-  if (ngx_queue_empty(&s->member_)) {
+  if (s->status_ != Socket::kClosed && ngx_queue_empty(&s->member_)) {
     ngx_queue_insert_tail(&queue_, &s->member_);
   }
   uv_mutex_unlock(&queue_mtx_);
@@ -556,6 +556,8 @@ void Socket::OnError(uv_async_t* handle, int status) {
 
   // Stop accepting incoming data on error
   if (s->status_ >= kHalfClosed) return;
+
+  fprintf(stdout, "error\n");
   uv_mutex_lock(&s->status_mtx_);
   s->status_ = kHalfClosed;
   uv_mutex_unlock(&s->status_mtx_);
@@ -663,7 +665,6 @@ void Socket::OnEvent() {
           if (err_ == 0) {
             err_ = err;
             SSL_shutdown(ssl_);
-            fprintf(stderr, "SSL_write: %d\n", err);
             uv_async_send(err_cb_);
           }
           break;
@@ -698,7 +699,6 @@ emit_data:
         if (err_ == 0) {
           err_ = err;
           SSL_shutdown(ssl_);
-          fprintf(stderr, "SSL_read: %d\n", err);
           uv_async_send(err_cb_);
         }
         break;
