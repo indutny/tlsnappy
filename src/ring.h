@@ -20,7 +20,7 @@ class RingBuffer {
 
   ngx_queue_t member;
   int offset;
-  char data[1 * 1024];
+  char data[4 * 1024];
 };
 
 class Ring {
