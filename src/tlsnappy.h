@@ -62,13 +62,6 @@ class Context : public ObjectWrap {
 
 class Socket : public ObjectWrap {
  public:
-  enum Status {
-    kRunning = 0,
-    kClosing = 1, // Accept incoming data
-    kHalfClosed = 2, // Stop accepting incoming data, but emit data events
-    kClosed = 3 // No input and output, socket is closed
-  };
-
   Socket(Context* context);
   ~Socket();
 
@@ -84,12 +77,12 @@ class Socket : public ObjectWrap {
   static void ClearOut(uv_async_t* handle, int status);
   static void EncOut(uv_async_t* handle, int status);
   static void OnClose(uv_async_t* handle, int status);
-  static void OnError(uv_async_t* handle, int status);
   static void OnInit(uv_async_t* handle, int status);
 
-  uv_mutex_t status_mtx_;
   uv_mutex_t event_mtx_;
-  volatile Status status_;
+  int queued_;
+  volatile int closing_;
+  bool closed_;
   int err_;
   bool sent_shutdown_;
 
@@ -100,11 +93,14 @@ class Socket : public ObjectWrap {
   uv_async_t* clear_out_cb_;
   uv_async_t* enc_out_cb_;
   uv_async_t* close_cb_;
-  uv_async_t* err_cb_;
   uv_async_t* init_cb_;
 
   void OnEvent();
   void TryGetNPN();
+  void HandleError(int err);
+  void Shutdown();
+
+  bool want_write_;
 
   uv_mutex_t enc_in_mtx_;
   uv_mutex_t enc_out_mtx_;

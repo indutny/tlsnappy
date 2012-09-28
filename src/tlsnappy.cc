@@ -90,8 +90,11 @@ int Context::Advertise(SSL *s,
 void Context::Enqueue(Socket* s) {
   uv_mutex_lock(&queue_mtx_);
   // Prevent double insertions
-  if (s->status_ != Socket::kClosed && ngx_queue_empty(&s->member_)) {
+  if (ngx_queue_empty(&s->member_)) {
     ngx_queue_insert_tail(&queue_, &s->member_);
+    s->queued_ = 1;
+  } else {
+    s->queued_++;
   }
   uv_mutex_unlock(&queue_mtx_);
 
@@ -126,8 +129,10 @@ bool Context::RunLoop() {
   if (!ngx_queue_empty(&queue_)) {
     ngx_queue_t* member = ngx_queue_head(&queue_);
     socket = container_of(member, Socket, member_);
-    ngx_queue_remove(member);
-    ngx_queue_init(member);
+    if (--socket->queued_ == 0) {
+      ngx_queue_remove(member);
+      ngx_queue_init(member);
+    }
   }
 
   uv_mutex_unlock(&queue_mtx_);
@@ -337,9 +342,12 @@ Handle<Value> Socket::New(const Arguments& args) {
 }
 
 
-Socket::Socket(Context* ctx) : status_(kRunning),
+Socket::Socket(Context* ctx) : queued_(0),
+                               closing_(0),
+                               closed_(false),
                                err_(0),
                                sent_shutdown_(false),
+                               want_write_(false),
                                ctx_(ctx),
                                npn_(NULL),
                                npn_len_(-1) {
@@ -357,16 +365,14 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_mutex_init(&enc_out_mtx_)) abort();
   if (uv_mutex_init(&clear_in_mtx_)) abort();
   if (uv_mutex_init(&clear_out_mtx_)) abort();
-  if (uv_mutex_init(&status_mtx_)) abort();
   if (uv_mutex_init(&event_mtx_)) abort();
 
-  uv_async_t** handles[5] = { &enc_out_cb_,
+  uv_async_t** handles[4] = { &enc_out_cb_,
                               &clear_out_cb_,
                               &close_cb_,
-                              &err_cb_,
                               &init_cb_ };
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     uv_async_t* handle = new uv_async_t();
 
     handle->data = this;
@@ -376,7 +382,6 @@ Socket::Socket(Context* ctx) : status_(kRunning),
   if (uv_async_init(uv_default_loop(), enc_out_cb_, EncOut)) abort();
   if (uv_async_init(uv_default_loop(), clear_out_cb_, ClearOut)) abort();
   if (uv_async_init(uv_default_loop(), close_cb_, OnClose)) abort();
-  if (uv_async_init(uv_default_loop(), err_cb_, OnError)) abort();
   if (uv_async_init(uv_default_loop(), init_cb_, OnInit)) abort();
 
   ngx_queue_init(&member_);
@@ -400,15 +405,13 @@ Socket::~Socket() {
   uv_mutex_destroy(&enc_out_mtx_);
   uv_mutex_destroy(&clear_in_mtx_);
   uv_mutex_destroy(&clear_out_mtx_);
-  uv_mutex_destroy(&status_mtx_);
   uv_mutex_destroy(&event_mtx_);
 
-  uv_async_t* handles[5] = { enc_out_cb_,
+  uv_async_t* handles[4] = { enc_out_cb_,
                              clear_out_cb_,
                              close_cb_,
-                             err_cb_,
                              init_cb_ };
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     uv_close(reinterpret_cast<uv_handle_t*>(handles[i]), OnAsyncClose);
   }
 
@@ -423,8 +426,6 @@ Handle<Value> Socket::ClearIn(const Arguments& args) {
   }
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
-
-  if (s->status_ >= kHalfClosed) return Null();
 
   uv_mutex_lock(&s->clear_in_mtx_);
   s->clear_in_.Write(Buffer::Data(args[0].As<Object>()),
@@ -444,8 +445,6 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  if (s->status_ >= kHalfClosed) return Null();
-
   uv_mutex_lock(&s->enc_in_mtx_);
   s->enc_in_.Write(Buffer::Data(args[0].As<Object>()),
                    Buffer::Length(args[0].As<Object>()));
@@ -460,12 +459,8 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 Handle<Value> Socket::Close(const Arguments& args) {
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  uv_mutex_lock(&s->status_mtx_);
-  if (s->status_ == kRunning) {
-    s->status_ = kClosing;
-    s->ctx_->Enqueue(s);
-  }
-  uv_mutex_unlock(&s->status_mtx_);
+  s->closing_ = 1;
+  s->ctx_->Enqueue(s);
 
   return Null();
 }
@@ -474,8 +469,6 @@ Handle<Value> Socket::Close(const Arguments& args) {
 void Socket::ClearOut(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
-
-  if (s->status_ == kClosed) return;
 
   uv_mutex_lock(&s->clear_out_mtx_);
   int size = s->clear_out_.Size();
@@ -487,18 +480,12 @@ void Socket::ClearOut(uv_async_t* handle, int status) {
 
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, oncdata_sym, 1, argv);
-
-  uv_mutex_lock(&s->status_mtx_);
-  if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
-  uv_mutex_unlock(&s->status_mtx_);
 }
 
 
 void Socket::EncOut(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
-
-  if (s->status_ == kClosed) return;
 
   uv_mutex_lock(&s->enc_out_mtx_);
   int size = s->enc_out_.Size();
@@ -510,10 +497,6 @@ void Socket::EncOut(uv_async_t* handle, int status) {
 
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, onedata_sym, 1, argv);
-
-  uv_mutex_lock(&s->status_mtx_);
-  if (s->status_ == kHalfClosed) uv_async_send(s->close_cb_);
-  uv_mutex_unlock(&s->status_mtx_);
 }
 
 
@@ -521,7 +504,7 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
-  if (s->status_ == kClosed) return;
+  if (s->closed_) return;
 
   int bytes = 0;
   uv_mutex_lock(&s->clear_in_mtx_);
@@ -532,47 +515,21 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   bytes += s->enc_in_.Size();
   uv_mutex_unlock(&s->enc_in_mtx_);
 
-  uv_mutex_lock(&s->enc_out_mtx_);
-  bytes += s->enc_out_.Size();
-  uv_mutex_unlock(&s->enc_out_mtx_);
+  // Parse incoming bytes
+  if (bytes != 0 || s->closing_ != 2) {
+    s->ctx_->Enqueue(s);
+    return;
+  }
 
-  uv_mutex_lock(&s->clear_out_mtx_);
-  bytes += s->clear_out_.Size();
-  uv_mutex_unlock(&s->clear_out_mtx_);
+  // Write all output data
+  ClearOut(s->enc_out_cb_, 0);
+  EncOut(s->enc_out_cb_, 0);
 
-  if (bytes != 0) return;
+  s->closed_ = true;
 
-  uv_mutex_lock(&s->status_mtx_);
-  s->status_ = kClosed;
-  uv_mutex_unlock(&s->status_mtx_);
+  // And finally emit close event
   MakeCallback(s->handle_, onclose_sym, 0, NULL);
   s->Unref();
-}
-
-
-void Socket::OnError(uv_async_t* handle, int status) {
-  HandleScope scope;
-  Socket* s = reinterpret_cast<Socket*>(handle->data);
-
-  // Stop accepting incoming data on error
-  if (s->status_ >= kHalfClosed) return;
-
-  fprintf(stdout, "error\n");
-  uv_mutex_lock(&s->status_mtx_);
-  s->status_ = kHalfClosed;
-  uv_mutex_unlock(&s->status_mtx_);
-
-  // Flush all incoming data
-  uv_mutex_lock(&s->clear_in_mtx_);
-  s->clear_in_.Read(NULL, s->clear_in_.Size());
-  uv_mutex_unlock(&s->clear_in_mtx_);
-
-  uv_mutex_lock(&s->enc_in_mtx_);
-  s->enc_in_.Read(NULL, s->enc_in_.Size());
-  uv_mutex_unlock(&s->enc_in_mtx_);
-
-  s->ctx_->Enqueue(s);
-  uv_async_send(s->close_cb_);
 }
 
 
@@ -583,6 +540,21 @@ void Socket::OnInit(uv_async_t* handle, int status) {
   Handle<Value> argv[1] = { String::New(const_cast<char*>(s->npn_),
                                         s->npn_len_) };
   MakeCallback(s->handle_, oninit_sym, 1, argv);
+}
+
+
+void Socket::HandleError(int err) {
+  // Flush all incoming data
+  uv_mutex_lock(&clear_in_mtx_);
+  clear_in_.Read(NULL, clear_in_.Size());
+  uv_mutex_unlock(&clear_in_mtx_);
+
+  uv_mutex_lock(&enc_in_mtx_);
+  enc_in_.Read(NULL, enc_in_.Size());
+  uv_mutex_unlock(&enc_in_mtx_);
+
+  // Pretend we're closing
+  Shutdown();
 }
 
 
@@ -608,6 +580,33 @@ void Socket::TryGetNPN() {
 }
 
 
+void Socket::Shutdown() {
+  if (closing_ != 2) {
+    int r = SSL_shutdown(ssl_);
+
+    // Emit event anyway
+    uv_async_send(close_cb_);
+
+    if (r != 0) {
+      int err = SSL_get_error(ssl_, r);
+      if (err == SSL_ERROR_WANT_READ) {
+        // Wait for data to come
+        return;
+      } else if (err == SSL_ERROR_WANT_WRITE) {
+        want_write_ = true;
+        return;
+      } else {
+        // Error happened and recovery is impossible
+        // Fall through to closing_ = 2
+      }
+    }
+
+    // So we've succeeded
+    closing_ = 2;
+  }
+}
+
+
 void Socket::OnEvent() {
   int r;
   int err;
@@ -616,11 +615,7 @@ void Socket::OnEvent() {
   int bytes;
   char data[10240];
 
-  // Do nothing with closed socket
-  if (status_ == kClosed) return;
-
-  // Ignore all events if socket is half-closed
-  if (status_ == kHalfClosed) goto emit_data;
+loop_entry:
 
   do {
     // Read data from rings
@@ -635,77 +630,82 @@ void Socket::OnEvent() {
     }
   } while (enc_bytes == sizeof(enc_data));
 
-  do {
-    // Write clear data
-    uv_mutex_lock(&clear_in_mtx_);
-    bytes = clear_in_.Peek(data, sizeof(data));
-    uv_mutex_unlock(&clear_in_mtx_);
+  if (closing_ != 2) {
+    do {
+      // Write clear data
+      uv_mutex_lock(&clear_in_mtx_);
+      bytes = clear_in_.Peek(data, sizeof(data));
+      uv_mutex_unlock(&clear_in_mtx_);
 
-    if (bytes > 0) {
-      r = SSL_write(ssl_, data, bytes);
-      if (r > 0) {
-        // Flush data
-        uv_mutex_lock(&clear_in_mtx_);
-        clear_in_.Read(NULL, r);
-        uv_mutex_unlock(&clear_in_mtx_);
+      if (bytes > 0) {
+        r = SSL_write(ssl_, data, bytes);
+        if (r > 0) {
+          // Flush read data
+          uv_mutex_lock(&clear_in_mtx_);
+          clear_in_.Read(NULL, r);
+          uv_mutex_unlock(&clear_in_mtx_);
 
-        // Loop until all data will be written
-        if (r < bytes) continue;
+          // Loop until all data will be written
+          if (r < bytes) continue;
+        } else {
+          err = SSL_get_error(ssl_, r);
+          if (err == SSL_ERROR_ZERO_RETURN) {
+            // Ignore
+          } else if (err == SSL_ERROR_WANT_READ) {
+            // Ignore
+            break;
+          } else if (err == SSL_ERROR_WANT_WRITE) {
+            want_write_ = true;
+            break;
+          } else {
+            if (err_ == 0) {
+              err_ = err;
+              HandleError(err);
+            }
+            break;
+          }
+        }
+      }
+    } while (bytes > 0);
+
+    if (want_write_) goto do_write;
+
+    TryGetNPN();
+
+    do {
+      // Read clear data
+      bytes = SSL_read(ssl_, data, sizeof(data));
+      if (bytes > 0) {
+        TryGetNPN();
+
+        uv_mutex_lock(&clear_out_mtx_);
+        clear_out_.Write(data, bytes);
+        uv_mutex_unlock(&clear_out_mtx_);
+
+        uv_async_send(clear_out_cb_);
       } else {
-        err = SSL_get_error(ssl_, r);
+        err = SSL_get_error(ssl_, bytes);
         if (err == SSL_ERROR_ZERO_RETURN) {
           // Ignore
         } else if (err == SSL_ERROR_WANT_READ) {
           // Ignore
           break;
         } else if (err == SSL_ERROR_WANT_WRITE) {
-          // Ignore
-          break;
+          want_write_ = true;
         } else {
           if (err_ == 0) {
             err_ = err;
-            SSL_shutdown(ssl_);
-            uv_async_send(err_cb_);
+            HandleError(err);
           }
           break;
         }
       }
-    }
-  } while (bytes > 0);
+    } while (bytes > 0);
 
-emit_data:
-  TryGetNPN();
+    if (want_write_) goto do_write;
+  }
 
-  do {
-    // Read clear data
-    bytes = SSL_read(ssl_, data, sizeof(data));
-    if (bytes > 0) {
-      TryGetNPN();
-
-      uv_mutex_lock(&clear_out_mtx_);
-      clear_out_.Write(data, bytes);
-      uv_mutex_unlock(&clear_out_mtx_);
-
-      uv_async_send(clear_out_cb_);
-    } else {
-      err = SSL_get_error(ssl_, bytes);
-      if (err == SSL_ERROR_ZERO_RETURN) {
-        // Ignore
-      } else if (err == SSL_ERROR_WANT_READ) {
-        break;
-      } else if (err == SSL_ERROR_WANT_WRITE) {
-        break;
-      } else {
-        if (err_ == 0) {
-          err_ = err;
-          SSL_shutdown(ssl_);
-          uv_async_send(err_cb_);
-        }
-        break;
-      }
-    }
-  } while (bytes > 0);
-
+do_write:
   // Read encrypted data
   do {
     bytes = BIO_read(wbio_, data, sizeof(data));
@@ -719,32 +719,17 @@ emit_data:
     }
   } while (bytes == sizeof(data));
 
-  if (status_ == kClosing) {
-    bytes = 0;
-    uv_mutex_lock(&clear_in_mtx_);
-    bytes += clear_in_.Size();
-    uv_mutex_unlock(&clear_in_mtx_);
-
-    uv_mutex_lock(&enc_in_mtx_);
-    bytes += enc_in_.Size();
-    uv_mutex_unlock(&enc_in_mtx_);
-
-    // All remaining data was written to socket
-    // and shutdown packet was sent
-    if (bytes == 0 && sent_shutdown_) {
-      uv_mutex_lock(&status_mtx_);
-      status_ = kHalfClosed;
-      uv_mutex_unlock(&status_mtx_);
-      uv_async_send(close_cb_);
-    } else {
-      // Ignore return value
-      SSL_shutdown(ssl_);
-      sent_shutdown_ = true;
-
-      // Try again in next tick
-      ctx_->Enqueue(this);
-    }
+  // Loop everything again if write was required
+  if (want_write_) {
+    want_write_ = false;
+    goto loop_entry;
   }
+
+  if (closing_) {
+    Shutdown();
+  }
+
+  if (want_write_) goto do_write;
 }
 
 
