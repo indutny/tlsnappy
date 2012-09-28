@@ -1,13 +1,13 @@
 #ifndef _SRC_TLSNAPPY_H_
 #define _SRC_TLSNAPPY_H_
 
-#include "openssl/ssl.h"
-#include "openssl/err.h"
 #include "node.h"
 #include "node_buffer.h"
 #include "node_object_wrap.h"
 #include "ngx-queue.h"
 #include "ring.h"
+#include "openssl/ssl.h"
+#include "openssl/err.h"
 
 namespace tlsnappy {
 

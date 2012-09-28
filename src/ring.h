@@ -20,7 +20,7 @@ class RingBuffer {
 
   ngx_queue_t member;
   int offset;
-  char data[4 * 1024];
+  char data[1 * 1024];
 };
 
 class Ring {
@@ -54,7 +54,7 @@ class Ring {
     return total_;
   }
 
-  inline void Write(char* data, int size) {
+  inline void Write(const char* data, int size) {
     int left = size;
     int offset = 0;
     RingBuffer* b = tail();

@@ -1,14 +1,7 @@
-#include "node.h"
-#include "node_buffer.h"
-#include "node_object_wrap.h"
-#include "ngx-queue.h"
-
 #include "tlsnappy.h"
-#include "ring.h"
+#include "bio.h"
 #include "common.h"
-
-#include "openssl/ssl.h"
-#include "openssl/err.h"
+#include "assert.h"
 
 namespace tlsnappy {
 
@@ -670,6 +663,7 @@ void Socket::OnEvent() {
           if (err_ == 0) {
             err_ = err;
             SSL_shutdown(ssl_);
+            fprintf(stdout, "SSL_write: %d\n", err);
             uv_async_send(err_cb_);
           }
           break;
@@ -704,6 +698,7 @@ emit_data:
         if (err_ == 0) {
           err_ = err;
           SSL_shutdown(ssl_);
+          fprintf(stdout, "SSL_read: %d\n", err);
           uv_async_send(err_cb_);
         }
         break;

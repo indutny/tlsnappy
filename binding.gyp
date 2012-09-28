@@ -6,7 +6,8 @@
     {
       "target_name": "tlsnappy",
       "sources": [
-        "src/tlsnappy.cc"
+        "src/tlsnappy.cc",
+        "src/bio.cc",
       ],
       "conditions": [
         ["node_shared_openssl=='false'", {
