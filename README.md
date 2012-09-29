@@ -1,6 +1,12 @@
 # TLSnappy
 
 TLS module, but faster! ( [benchmarks][1] )
+
+**Stability: -1**
+
+This module is unstable, things may break and/or unicorns can just jump in front
+of you. In case of anything - open issue!
+
 # API
 
 ```javascript
