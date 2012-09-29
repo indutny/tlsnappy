@@ -2,7 +2,8 @@ var fs = require('fs'),
     os = require('os'),
     cluster = require('cluster'),
     https = require('https'),
-    tlsnappy = require('..');
+    tlsnappy = require('..'),
+    threads = os.cpus().length;
 
 var needsCluster = process.argv[2] === '--https' ||
                    process.argv[2] === '--cluster';
@@ -10,7 +11,7 @@ var needsCluster = process.argv[2] === '--https' ||
 var options = {
   key: fs.readFileSync(__dirname + '/../keys/server.key'),
   cert: fs.readFileSync(__dirname + '/../keys/server.crt'),
-  threads: needsCluster ? 1 : undefined
+  threads: needsCluster ? Math.ceil(Math.sqrt(threads)) : undefined
 };
 
 var big = new Array(1024).join('abc');
@@ -34,7 +35,11 @@ if (needsCluster) {
       cluster.fork().on('death', fork);
     }
 
-    for (var i = 0; i < os.cpus().length; i++) {
+    if (process.argv[2] !== '-https') {
+      threads = options.threads;
+    }
+
+    for (var i = 0; i < threads; i++) {
       fork();
     }
   } else if (process.argv[2] === '-https') {
