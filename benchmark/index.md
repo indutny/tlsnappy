@@ -1,5 +1,8 @@
 # TLSnappy
 
+![Requests per second](https://raw.github.com/indutny/tlsnappy/master/benchmark/tlsnappy-rps.png)
+![Time per request](https://raw.github.com/indutny/tlsnappy/master/benchmark/tlsnappy-ms.png)
+
 ## 16
 
 ```
