@@ -1,6 +1,6 @@
 # TLSnappy
 
-TLS module, but faster!
+TLS module, but faster! ( [benchmarks](benchmarks/index.md) )
 
 # API
 

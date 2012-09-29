@@ -3,7 +3,23 @@
 ![Requests per second](https://raw.github.com/indutny/tlsnappy/master/benchmark/tlsnappy-rps.png)
 ![Time per request](https://raw.github.com/indutny/tlsnappy/master/benchmark/tlsnappy-ms.png)
 
-## 16
+As you can see tlsnappy has slightly worse results at small concurrency level,
+I suppose it's because of round-robin balancing which tlsnappy is using
+internally. On all other loads it outperforms default node's tls module in both
+requests per second and time per request measurements.
+
+## TLSnappy with cluster
+
+Also, I've included benchmark results of tlsnappy with `cluster` module. It's
+significantly slower than both tlsnappy (without cluster) and tls because it was
+using only 6-8 cores of my 16 core server. Why was that happening?
+
+`cluster`'s is balancing connections to the first free process. And those 6-8
+processes was always free, because tlsnappy does all SSL encryption/decryption
+in threads, w/o block event-loop (in contrast to `tls` module, which blocks
+event-loop every time it needs to encrypt outcoming/decrypt incoming data).
+
+### 16
 
 ```
 Concurrency Level:      16
@@ -37,7 +53,7 @@ Percentage of the requests served within a certain time (ms)
  100%     48 (longest request)
 ```
 
-## 32
+### 32
 
 ```
 Concurrency Level:      32
@@ -71,7 +87,7 @@ Percentage of the requests served within a certain time (ms)
  100%     88 (longest request)
 ```
 
-## 48
+### 48
 
 ```
 Concurrency Level:      48
@@ -105,7 +121,7 @@ Percentage of the requests served within a certain time (ms)
  100%     80 (longest request)
 ```
 
-## 64
+### 64
 
 ```
 Concurrency Level:      64
@@ -139,7 +155,7 @@ Percentage of the requests served within a certain time (ms)
  100%     80 (longest request)
 ```
 
-## 80
+### 80
 
 ```
 Concurrency Level:      80
@@ -173,7 +189,7 @@ Percentage of the requests served within a certain time (ms)
  100%    122 (longest request)
 ```
 
-## 96
+### 96
 
 ```
 Concurrency Level:      96
@@ -207,7 +223,7 @@ Percentage of the requests served within a certain time (ms)
  100%    114 (longest request)
 ```
 
-## 112
+### 112
 
 ```
 Concurrency Level:      112
@@ -241,7 +257,7 @@ Percentage of the requests served within a certain time (ms)
  100%    131 (longest request)
 ```
 
-## 128
+### 128
 
 ```
 Concurrency Level:      128
@@ -275,7 +291,7 @@ Percentage of the requests served within a certain time (ms)
  100%    130 (longest request)
 ```
 
-## 144
+### 144
 
 ```
 Concurrency Level:      144
@@ -309,7 +325,7 @@ Percentage of the requests served within a certain time (ms)
  100%    186 (longest request)
 ```
 
-## 160
+### 160
 
 ```
 Concurrency Level:      160
@@ -343,7 +359,7 @@ Percentage of the requests served within a certain time (ms)
  100%    159 (longest request)
 ```
 
-## 176
+### 176
 
 ```
 Concurrency Level:      176
@@ -377,7 +393,7 @@ Percentage of the requests served within a certain time (ms)
  100%    171 (longest request)
 ```
 
-## 192
+### 192
 
 ```
 Concurrency Level:      192
@@ -413,7 +429,7 @@ Percentage of the requests served within a certain time (ms)
 
 # HTTPS
 
-## 16
+### 16
 
 ```
 Concurrency Level:      16
@@ -447,7 +463,7 @@ Percentage of the requests served within a certain time (ms)
  100%     48 (longest request)
 ```
 
-## 32
+### 32
 
 ```
 Concurrency Level:      32
@@ -481,7 +497,7 @@ Percentage of the requests served within a certain time (ms)
  100%     47 (longest request)
 ```
 
-## 48
+### 48
 
 ```
 Concurrency Level:      48
@@ -515,7 +531,7 @@ Percentage of the requests served within a certain time (ms)
  100%     58 (longest request)
 ```
 
-## 64
+### 64
 
 ```
 Concurrency Level:      64
@@ -549,7 +565,7 @@ Percentage of the requests served within a certain time (ms)
  100%     79 (longest request)
 ```
 
-## 80
+### 80
 
 ```
 Concurrency Level:      80
@@ -583,7 +599,7 @@ Percentage of the requests served within a certain time (ms)
  100%     92 (longest request)
 ```
 
-## 96
+### 96
 
 ```
 Concurrency Level:      96
@@ -617,7 +633,7 @@ Percentage of the requests served within a certain time (ms)
  100%    146 (longest request)
 ```
 
-## 112
+### 112
 
 ```
 Concurrency Level:      112
@@ -651,7 +667,7 @@ Percentage of the requests served within a certain time (ms)
  100%    134 (longest request)
 ```
 
-## 128
+### 128
 
 ```
 Concurrency Level:      128
@@ -685,7 +701,7 @@ Percentage of the requests served within a certain time (ms)
  100%    146 (longest request)
 ```
 
-## 144
+### 144
 
 ```
 Concurrency Level:      144
@@ -719,7 +735,7 @@ Percentage of the requests served within a certain time (ms)
  100%    176 (longest request)
 ```
 
-## 160
+### 160
 
 ```
 Concurrency Level:      160
@@ -753,7 +769,7 @@ Percentage of the requests served within a certain time (ms)
  100%    184 (longest request)
 ```
 
-## 176
+### 176
 
 ```
 Concurrency Level:      176
@@ -787,7 +803,7 @@ Percentage of the requests served within a certain time (ms)
  100%    218 (longest request)
 ```
 
-## 192
+### 192
 
 ```
 Concurrency Level:      192
@@ -823,7 +839,7 @@ Percentage of the requests served within a certain time (ms)
 
 # TLSnappy (cluster)
 
-## 16
+### 16
 
 ```
 Concurrency Level:      16
@@ -857,7 +873,7 @@ Percentage of the requests served within a certain time (ms)
  100%     70 (longest request)
 ```
 
-## 32
+### 32
 
 ```
 Concurrency Level:      32
@@ -891,7 +907,7 @@ Percentage of the requests served within a certain time (ms)
  100%     81 (longest request)
 ```
 
-## 48
+### 48
 
 ```
 Concurrency Level:      48
@@ -925,7 +941,7 @@ Percentage of the requests served within a certain time (ms)
  100%    108 (longest request)
 ```
 
-## 64
+### 64
 
 ```
 Concurrency Level:      64
@@ -959,7 +975,7 @@ Percentage of the requests served within a certain time (ms)
  100%    126 (longest request)
 ```
 
-## 80
+### 80
 
 ```
 Concurrency Level:      80
@@ -993,7 +1009,7 @@ Percentage of the requests served within a certain time (ms)
  100%    137 (longest request)
 ```
 
-## 96
+### 96
 
 ```
 Concurrency Level:      96
@@ -1027,7 +1043,7 @@ Percentage of the requests served within a certain time (ms)
  100%    159 (longest request)
 ```
 
-## 112
+### 112
 
 ```
 Concurrency Level:      112
@@ -1061,7 +1077,7 @@ Percentage of the requests served within a certain time (ms)
  100%    178 (longest request)
 ```
 
-## 128
+### 128
 
 ```
 Concurrency Level:      128
@@ -1095,7 +1111,7 @@ Percentage of the requests served within a certain time (ms)
  100%    190 (longest request)
 ```
 
-## 144
+### 144
 
 ```
 Concurrency Level:      144
@@ -1129,7 +1145,7 @@ Percentage of the requests served within a certain time (ms)
  100%    217 (longest request)
 ```
 
-## 160
+### 160
 
 ```
 Concurrency Level:      160
@@ -1163,7 +1179,7 @@ Percentage of the requests served within a certain time (ms)
  100%    248 (longest request)
 ```
 
-## 176
+### 176
 
 ```
 Concurrency Level:      176
@@ -1197,7 +1213,7 @@ Percentage of the requests served within a certain time (ms)
  100%    271 (longest request)
 ```
 
-## 192
+### 192
 
 ```
 Concurrency Level:      192
