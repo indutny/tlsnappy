@@ -1,5 +1,9 @@
 var fs = require('fs'),
+    os = require('os'),
+    cluster = require('cluster'),
+    https = require('https'),
     tlsnappy = require('..');
+
 
 var options = {
   key: fs.readFileSync(__dirname + '/../keys/server.key'),
@@ -8,7 +12,7 @@ var options = {
 
 var big = new Array(1024).join('abc');
 
-var server = tlsnappy.createServer(options, function(req, res) {
+function handler(req, res) {
   if (req.url === '/big') {
     return res.end(big);
   }
@@ -19,6 +23,25 @@ var server = tlsnappy.createServer(options, function(req, res) {
       console.log('should be closed');
     });
   }
-}).listen(44300, function() {
+}
+
+if (process.argv[2] === '--https') {
+  if (cluster.isMaster) {
+    function fork() {
+      cluster.fork().on('death', fork);
+    }
+
+    for (var i = 0; i < os.cpus().length; i++) {
+      fork();
+    }
+  } else {
+    var server = https.createServer(options, handler);
+  }
+} else {
+  var server = tlsnappy.createServer(options, handler);
+}
+
+if (!server) return;
+server.listen(44300, function() {
   console.log('listening');
 });
