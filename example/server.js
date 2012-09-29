@@ -4,10 +4,13 @@ var fs = require('fs'),
     https = require('https'),
     tlsnappy = require('..');
 
+var needsCluster = process.argv[2] === '--https' ||
+                   process.argv[2] === '--cluster';
 
 var options = {
   key: fs.readFileSync(__dirname + '/../keys/server.key'),
-  cert: fs.readFileSync(__dirname + '/../keys/server.crt')
+  cert: fs.readFileSync(__dirname + '/../keys/server.crt'),
+  threads: needsCluster ? 1 : undefined
 };
 
 var big = new Array(1024).join('abc');
@@ -25,7 +28,7 @@ function handler(req, res) {
   }
 }
 
-if (process.argv[2] === '--https') {
+if (needsCluster) {
   if (cluster.isMaster) {
     function fork() {
       cluster.fork().on('death', fork);
@@ -34,8 +37,10 @@ if (process.argv[2] === '--https') {
     for (var i = 0; i < os.cpus().length; i++) {
       fork();
     }
-  } else {
+  } else if (process.argv[2] === '-https') {
     var server = https.createServer(options, handler);
+  } else {
+    var server = tlsnappy.createServer(options, handler);
   }
 } else {
   var server = tlsnappy.createServer(options, handler);
