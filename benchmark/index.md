@@ -427,7 +427,7 @@ Percentage of the requests served within a certain time (ms)
  100%    182 (longest request)
 ```
 
-# HTTPS
+## HTTPS
 
 ### 16
 
@@ -837,7 +837,7 @@ Percentage of the requests served within a certain time (ms)
  100%    214 (longest request)
 ```
 
-# TLSnappy (cluster)
+## TLSnappy (cluster)
 
 ### 16
 
@@ -1245,4 +1245,413 @@ Percentage of the requests served within a certain time (ms)
   98%    202
   99%    209
  100%    259 (longest request)
+```
+
+## NGINX 1.3.6 (with `echo "hello world"`)
+
+### 16
+
+```
+Concurrency Level:      16
+Time taken for tests:   47.110 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2122.69 [#/sec] (mean)
+Time per request:       7.538 [ms] (mean)
+Time per request:       0.471 [ms] (mean, across all concurrent requests)
+Transfer rate:          306.80 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1    6   2.1      5      30
+Processing:     0    2   1.3      2      24
+Waiting:        0    2   1.3      1      24
+Total:          1    7   2.1      7      36
+
+Percentage of the requests served within a certain time (ms)
+  50%      7
+  66%      8
+  75%      9
+  80%      9
+  90%     10
+  95%     11
+  98%     12
+  99%     13
+ 100%     36 (longest request)
+```
+
+### 32
+
+```
+Concurrency Level:      32
+Time taken for tests:   41.726 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2396.58 [#/sec] (mean)
+Time per request:       13.352 [ms] (mean)
+Time per request:       0.417 [ms] (mean, across all concurrent requests)
+Transfer rate:          346.38 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   10   3.4      9      56
+Processing:     0    4   2.5      3      52
+Waiting:        0    3   2.5      3      51
+Total:          2   13   3.8     13      64
+
+Percentage of the requests served within a certain time (ms)
+  50%     13
+  66%     15
+  75%     15
+  80%     16
+  90%     18
+  95%     19
+  98%     22
+  99%     23
+```
+
+### 48
+
+```
+Concurrency Level:      48
+Time taken for tests:   41.083 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2434.09 [#/sec] (mean)
+Time per request:       19.720 [ms] (mean)
+Time per request:       0.411 [ms] (mean, across all concurrent requests)
+Transfer rate:          351.80 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   14   5.0     13      55
+Processing:     0    6   3.9      5      40
+Waiting:        0    5   3.9      4      39
+Total:          2   20   5.6     20      64
+
+Percentage of the requests served within a certain time (ms)
+  50%     20
+  66%     22
+  75%     23
+  80%     24
+  90%     27
+  95%     29
+  98%     33
+  99%     35
+ 100%     64 (longest request)
+```
+
+### 64
+
+```
+Concurrency Level:      64
+Time taken for tests:   40.752 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2453.84 [#/sec] (mean)
+Time per request:       26.082 [ms] (mean)
+Time per request:       0.408 [ms] (mean, across all concurrent requests)
+Transfer rate:          354.66 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   18   6.6     17      68
+Processing:     0    8   5.1      7      50
+Waiting:        0    7   5.1      5      50
+Total:          2   26   7.5     26      79
+
+Percentage of the requests served within a certain time (ms)
+  50%     26
+  66%     29
+  75%     30
+  80%     32
+  90%     35
+  95%     38
+  98%     43
+  99%     47
+ 100%     79 (longest request)
+```
+
+### 80
+
+```
+Concurrency Level:      80
+Time taken for tests:   40.885 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2445.88 [#/sec] (mean)
+Time per request:       32.708 [ms] (mean)
+Time per request:       0.409 [ms] (mean, across all concurrent requests)
+Transfer rate:          353.51 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   23   8.6     22      91
+Processing:     0   10   6.6      9      68
+Waiting:        0    8   6.5      7      68
+Total:          2   33   9.7     33     100
+
+Percentage of the requests served within a certain time (ms)
+  50%     33
+  66%     36
+  75%     38
+  80%     40
+  90%     44
+  95%     49
+  98%     56
+  99%     59
+ 100%    100 (longest request)
+```
+
+### 96
+
+```
+Concurrency Level:      96
+Time taken for tests:   40.734 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2454.93 [#/sec] (mean)
+Time per request:       39.105 [ms] (mean)
+Time per request:       0.407 [ms] (mean, across all concurrent requests)
+Transfer rate:          354.81 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   27  10.4     26     107
+Processing:     0   12   8.1     11      67
+Waiting:        0   10   8.0      8      61
+Total:          2   39  12.2     39     117
+
+Percentage of the requests served within a certain time (ms)
+  50%     39
+  66%     43
+  75%     46
+  80%     48
+  90%     54
+  95%     60
+  98%     67
+  99%     72
+ 100%    117 (longest request)
+```
+
+### 112
+
+```
+Concurrency Level:      112
+Time taken for tests:   41.334 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2419.33 [#/sec] (mean)
+Time per request:       46.294 [ms] (mean)
+Time per request:       0.413 [ms] (mean, across all concurrent requests)
+Transfer rate:          349.67 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   31  12.5     30     134
+Processing:     0   15   9.7     13      88
+Waiting:        0   12   9.7     10      85
+Total:          1   46  14.7     46     144
+
+Percentage of the requests served within a certain time (ms)
+  50%     46
+  66%     51
+  75%     55
+  80%     57
+  90%     65
+  95%     73
+  98%     79
+  99%     85
+ 100%    144 (longest request)
+```
+
+### 128
+
+```
+Concurrency Level:      128
+Time taken for tests:   41.395 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2415.73 [#/sec] (mean)
+Time per request:       52.986 [ms] (mean)
+Time per request:       0.414 [ms] (mean, across all concurrent requests)
+Transfer rate:          349.15 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   36  14.4     34     140
+Processing:     0   17  11.5     15     120
+Waiting:        0   14  11.4     12     110
+Total:          1   53  17.5     52     170
+
+Percentage of the requests served within a certain time (ms)
+  50%     52
+  66%     58
+  75%     62
+  80%     65
+  90%     75
+  95%     84
+  98%     94
+  99%     99
+ 100%    170 (longest request)
+```
+
+### 144
+
+```
+Concurrency Level:      144
+Time taken for tests:   41.529 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2407.97 [#/sec] (mean)
+Time per request:       59.801 [ms] (mean)
+Time per request:       0.415 [ms] (mean, across all concurrent requests)
+Transfer rate:          348.03 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   40  29.9     38    3040
+Processing:     0   20  13.0     18     133
+Waiting:        0   16  13.0     14     128
+Total:          1   60  32.2     59    3062
+
+Percentage of the requests served within a certain time (ms)
+  50%     59
+  66%     66
+  75%     71
+  80%     75
+  90%     85
+  95%     94
+  98%    105
+  99%    115
+ 100%   3062 (longest request)
+```
+
+### 160
+
+```
+Concurrency Level:      160
+Time taken for tests:   41.455 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2412.24 [#/sec] (mean)
+Time per request:       66.328 [ms] (mean)
+Time per request:       0.415 [ms] (mean, across all concurrent requests)
+Transfer rate:          348.64 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   45  80.6     41    3082
+Processing:     0   21  13.9     18     140
+Waiting:        0   17  13.8     14     135
+Total:          2   66  81.5     63    3088
+
+Percentage of the requests served within a certain time (ms)
+  50%     63
+  66%     71
+  75%     77
+  80%     80
+  90%     91
+  95%    102
+  98%    116
+  99%    124
+ 100%   3088 (longest request)
+```
+
+### 176
+
+```
+Concurrency Level:      176
+Time taken for tests:   41.501 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2409.60 [#/sec] (mean)
+Time per request:       73.041 [ms] (mean)
+Time per request:       0.415 [ms] (mean, across all concurrent requests)
+Transfer rate:          348.26 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   49  84.4     45    3069
+Processing:     0   24  15.3     21     160
+Waiting:        0   19  15.2     16     154
+Total:          1   73  85.3     70    3106
+
+Percentage of the requests served within a certain time (ms)
+  50%     70
+  66%     78
+  75%     84
+  80%     89
+  90%    101
+  95%    113
+  98%    129
+  99%    137
+ 100%   3106 (longest request)
+```
+
+### 192
+
+```
+Concurrency Level:      192
+Time taken for tests:   41.845 seconds
+Complete requests:      100000
+Failed requests:        0
+Write errors:           0
+Total transferred:      14800000 bytes
+HTML transferred:       1200000 bytes
+Requests per second:    2389.76 [#/sec] (mean)
+Time per request:       80.343 [ms] (mean)
+Time per request:       0.418 [ms] (mean, across all concurrent requests)
+Transfer rate:          345.39 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        1   55 125.2     48    3083
+Processing:     0   25  16.6     22     172
+Waiting:        0   20  16.4     17     172
+Total:          2   80 126.3     74    3110
+
+Percentage of the requests served within a certain time (ms)
+  50%     74
+  66%     84
+  75%     91
+  80%     96
+  90%    109
+  95%    123
+  98%    141
+  99%    153
+ 100%   3110 (longest request)
 ```
