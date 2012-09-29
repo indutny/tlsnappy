@@ -1,7 +1,6 @@
 # TLSnappy
 
-TLS module, but faster! ( [benchmarks](tlsnappy/benchmarks/index.md) )
-
+TLS module, but faster! ( [benchmarks][1] )
 # API
 
 ```javascript
@@ -45,3 +44,5 @@ NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+[1]: https://github.com/indutny/tlsnappy/blob/master/benchmark/index.md
