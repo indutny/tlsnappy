@@ -35,14 +35,14 @@ if (needsCluster) {
       cluster.fork().on('death', fork);
     }
 
-    if (process.argv[2] !== '-https') {
+    if (process.argv[2] !== '--https') {
       threads = options.threads;
     }
 
     for (var i = 0; i < threads; i++) {
       fork();
     }
-  } else if (process.argv[2] === '-https') {
+  } else if (process.argv[2] === '--https') {
     var server = https.createServer(options, handler);
   } else {
     var server = tlsnappy.createServer(options, handler);
