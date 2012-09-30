@@ -35,7 +35,9 @@ if (needsCluster) {
       cluster.fork().on('death', fork);
     }
 
-    if (process.argv[2] !== '--https') {
+    if (process.argv[2] === '--cluster') {
+      options.threads = 1;
+    } else if (process.argv[2] !== '--https') {
       threads = options.threads;
     }
 
