@@ -6,6 +6,7 @@ var fs = require('fs'),
     threads = os.cpus().length;
 
 var needsCluster = process.argv[2] === '--https' ||
+                   process.argv[2] === '--hybrid' ||
                    process.argv[2] === '--cluster';
 
 var options = {
