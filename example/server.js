@@ -18,6 +18,12 @@ var options = {
 var big = new Array(1024).join('abc');
 
 function handler(req, res) {
+  // Just for benchmarking
+  res.writeHead(200, {
+    'Server': 'nginx/1.3.6',
+    'Content-Type': 'application/octet-stream'
+  });
+
   if (req.url === '/big') {
     return res.end(big);
   }
