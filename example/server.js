@@ -61,6 +61,6 @@ if (needsCluster) {
 }
 
 if (!server) return;
-server.listen(44300, function() {
+server.listen(process.argv[3] || 44300, function() {
   console.log('listening');
 });
