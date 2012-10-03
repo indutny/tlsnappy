@@ -102,11 +102,6 @@ class Socket : public ObjectWrap {
 
   bool want_write_;
 
-  uv_mutex_t enc_in_mtx_;
-  uv_mutex_t enc_out_mtx_;
-  uv_mutex_t clear_in_mtx_;
-  uv_mutex_t clear_out_mtx_;
-
   Context* ctx_;
   BIO* rbio_;
   BIO* wbio_;

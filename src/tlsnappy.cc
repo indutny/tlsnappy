@@ -361,10 +361,6 @@ Socket::Socket(Context* ctx) : queued_(0),
   SSL_set_bio(ssl_, rbio_, wbio_);
   SSL_set_accept_state(ssl_);
 
-  if (uv_mutex_init(&enc_in_mtx_)) abort();
-  if (uv_mutex_init(&enc_out_mtx_)) abort();
-  if (uv_mutex_init(&clear_in_mtx_)) abort();
-  if (uv_mutex_init(&clear_out_mtx_)) abort();
   if (uv_mutex_init(&event_mtx_)) abort();
 
   uv_async_t** handles[4] = { &enc_out_cb_,
@@ -401,10 +397,6 @@ Socket::~Socket() {
   SSL_free(ssl_);
   ctx_->Unref();
 
-  uv_mutex_destroy(&enc_in_mtx_);
-  uv_mutex_destroy(&enc_out_mtx_);
-  uv_mutex_destroy(&clear_in_mtx_);
-  uv_mutex_destroy(&clear_out_mtx_);
   uv_mutex_destroy(&event_mtx_);
 
   uv_async_t* handles[4] = { enc_out_cb_,
@@ -427,10 +419,8 @@ Handle<Value> Socket::ClearIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  uv_mutex_lock(&s->clear_in_mtx_);
   s->clear_in_.Write(Buffer::Data(args[0].As<Object>()),
                      Buffer::Length(args[0].As<Object>()));
-  uv_mutex_unlock(&s->clear_in_mtx_);
 
   s->ctx_->Enqueue(s);
 
@@ -445,10 +435,8 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  uv_mutex_lock(&s->enc_in_mtx_);
   s->enc_in_.Write(Buffer::Data(args[0].As<Object>()),
                    Buffer::Length(args[0].As<Object>()));
-  uv_mutex_unlock(&s->enc_in_mtx_);
 
   s->ctx_->Enqueue(s);
 
@@ -470,13 +458,11 @@ void Socket::ClearOut(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
-  uv_mutex_lock(&s->clear_out_mtx_);
   int size = s->clear_out_.Size();
   Buffer* b = Buffer::New(size);
 
   int read = s->clear_out_.Read(Buffer::Data(b->handle_), size);
   assert(read == size);
-  uv_mutex_unlock(&s->clear_out_mtx_);
 
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, oncdata_sym, 1, argv);
@@ -487,13 +473,11 @@ void Socket::EncOut(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
-  uv_mutex_lock(&s->enc_out_mtx_);
   int size = s->enc_out_.Size();
   Buffer* b = Buffer::New(size);
 
   int read = s->enc_out_.Read(Buffer::Data(b->handle_), size);
   assert(read == size);
-  uv_mutex_unlock(&s->enc_out_mtx_);
 
   Handle<Value> argv[1] = { b->handle_ };
   MakeCallback(s->handle_, onedata_sym, 1, argv);
@@ -507,13 +491,8 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   if (s->closed_) return;
 
   int bytes = 0;
-  uv_mutex_lock(&s->clear_in_mtx_);
   bytes += s->clear_in_.Size();
-  uv_mutex_unlock(&s->clear_in_mtx_);
-
-  uv_mutex_lock(&s->enc_in_mtx_);
   bytes += s->enc_in_.Size();
-  uv_mutex_unlock(&s->enc_in_mtx_);
 
   // Parse incoming bytes
   if (bytes != 0 || s->closing_ != 2) {
@@ -545,13 +524,8 @@ void Socket::OnInit(uv_async_t* handle, int status) {
 
 void Socket::HandleError(int err) {
   // Flush all incoming data
-  uv_mutex_lock(&clear_in_mtx_);
   clear_in_.Read(NULL, clear_in_.Size());
-  uv_mutex_unlock(&clear_in_mtx_);
-
-  uv_mutex_lock(&enc_in_mtx_);
   enc_in_.Read(NULL, enc_in_.Size());
-  uv_mutex_unlock(&enc_in_mtx_);
 
   // Pretend we're closing
   Shutdown();
@@ -586,9 +560,7 @@ void Socket::Shutdown() {
     uv_async_send(close_cb_);
 
     int bytes = 0;
-    uv_mutex_lock(&clear_in_mtx_);
     bytes = clear_in_.Size();
-    uv_mutex_unlock(&clear_in_mtx_);
 
     // Do not send shutdown if data wasn't transferred to the client
     if (bytes != 0) return;
@@ -626,9 +598,7 @@ loop_entry:
 
   do {
     // Read data from rings
-    uv_mutex_lock(&enc_in_mtx_);
     enc_bytes = enc_in_.Read(enc_data, sizeof(enc_data));
-    uv_mutex_unlock(&enc_in_mtx_);
 
     // Write encrypted data
     if (enc_bytes > 0) {
@@ -639,17 +609,13 @@ loop_entry:
 
   do {
     // Write clear data
-    uv_mutex_lock(&clear_in_mtx_);
     bytes = clear_in_.Peek(data, sizeof(data));
-    uv_mutex_unlock(&clear_in_mtx_);
 
     if (bytes > 0) {
       r = SSL_write(ssl_, data, bytes);
       if (r > 0) {
         // Flush read data
-        uv_mutex_lock(&clear_in_mtx_);
         clear_in_.Read(NULL, r);
-        uv_mutex_unlock(&clear_in_mtx_);
 
         // Loop until all data will be written
         if (r < bytes) continue;
@@ -684,9 +650,7 @@ loop_entry:
     if (bytes > 0) {
       TryGetNPN();
 
-      uv_mutex_lock(&clear_out_mtx_);
       clear_out_.Write(data, bytes);
-      uv_mutex_unlock(&clear_out_mtx_);
 
       uv_async_send(clear_out_cb_);
     } else if (closing_ != 2) {
@@ -713,9 +677,7 @@ do_write:
   do {
     bytes = BIO_read(wbio_, data, sizeof(data));
     if (bytes > 0) {
-      uv_mutex_lock(&enc_out_mtx_);
       enc_out_.Write(data, bytes);
-      uv_mutex_unlock(&enc_out_mtx_);
       TryGetNPN();
 
       uv_async_send(enc_out_cb_);
