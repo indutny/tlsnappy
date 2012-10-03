@@ -1,24 +1,17 @@
 #ifndef _SRC_RING_H_
 #define _SRC_RING_H_
 
-#include "ngx-queue.h"
 #include "common.h"
 
 class RingBuffer {
  public:
-  RingBuffer() : roffset(0), woffset(0) {
-    ngx_queue_init(&member);
+  RingBuffer() : next(this), roffset(0), woffset(0) {
   }
 
-  static inline RingBuffer* FromMember(ngx_queue_t* member) {
-    RingBuffer* result = container_of(member, RingBuffer, member);
-    return result;
-  }
-
-  ngx_queue_t member;
+  RingBuffer* next;
   volatile int roffset;
   volatile int woffset;
-  char data[4 * 1024];
+  char data[1 * 1024];
 };
 
 class Ring {
@@ -26,14 +19,6 @@ class Ring {
   Ring();
 
   ~Ring();
-
-  inline RingBuffer* rhead() {
-    return RingBuffer::FromMember(rhead_);
-  }
-
-  inline RingBuffer* whead() {
-    return RingBuffer::FromMember(whead_);
-  }
 
   inline int Size() {
     return total_;
@@ -44,10 +29,9 @@ class Ring {
   int Peek(char* data, int size);
 
  private:
-  ngx_queue_t queue_;
   RingBuffer head_;
-  ngx_queue_t* rhead_;
-  ngx_queue_t* whead_;
+  RingBuffer* rhead_;
+  RingBuffer* whead_;
 
   int total_;
 };
