@@ -31,7 +31,7 @@ void* producer(void* arg) {
 
 void* consumer(void* arg) {
   Ring* r = reinterpret_cast<Ring*>(arg);
-  char in[kBufsize];
+  char in[1024];
   int last = 0;
 
   while (true) {
