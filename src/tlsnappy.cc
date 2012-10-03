@@ -605,11 +605,11 @@ loop_entry:
       r = BIO_write(rbio_, enc_data, enc_bytes);
       assert(r == enc_bytes);
     }
-  } while (enc_bytes == sizeof(enc_data));
+  } while (enc_in_.Size() > 0);
 
   do {
     // Write clear data
-    bytes = clear_in_.Peek(data, sizeof(data));
+    bytes = clear_in_.Peek(data, clear_in_.Size());
 
     if (bytes > 0) {
       r = SSL_write(ssl_, data, bytes);
@@ -640,7 +640,7 @@ loop_entry:
         }
       }
     }
-  } while (bytes > 0);
+  } while (clear_in_.Size() > 0);
 
   TryGetNPN();
 
