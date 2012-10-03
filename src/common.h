@@ -1,6 +1,8 @@
 #ifndef _SRC_COMMON_H_
 #define _SRC_COMMON_H_
 
+#include <stdlib.h>
+
 #ifndef offset_of
 // g++ in strict mode complains loudly about the system offsetof() macro
 // because it uses NULL as the base address.
