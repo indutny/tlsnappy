@@ -31,11 +31,12 @@ void* producer(void* arg) {
 
 void* consumer(void* arg) {
   Ring* r = reinterpret_cast<Ring*>(arg);
-  char in[1024];
+  char in[999];
   int last = 0;
 
   while (true) {
-    int bytes = r->Read(in, sizeof(in));
+    int size = r->Size();
+    int bytes = r->Peek(in, size > sizeof(in) ? sizeof(in) : size);
     for (int i = 0; i < bytes; i++) {
       unsigned char uin = static_cast<unsigned char>(in[i]);
       if (uin != last) {
@@ -44,6 +45,7 @@ void* consumer(void* arg) {
       }
       last = (last + 1) & 0xff;
     }
+    r->Read(NULL, bytes);
   }
 
   return NULL;
