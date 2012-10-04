@@ -74,6 +74,8 @@ class Socket : public ObjectWrap {
   static Handle<Value> EncIn(const Arguments& args);
   static Handle<Value> Close(const Arguments& args);
 
+  inline void ClearOut();
+  inline void EncOut();
   static void EmitEvent(uv_async_t* handle, int status);
 
   uv_mutex_t event_mtx_;

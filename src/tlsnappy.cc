@@ -439,6 +439,36 @@ Handle<Value> Socket::Close(const Arguments& args) {
 }
 
 
+void Socket::ClearOut() {
+  HandleScope scope;
+
+  if (clear_out_.Size() > 0) {
+    int size = clear_out_.Size();
+    Buffer* b = Buffer::New(size);
+
+    int read = clear_out_.Read(Buffer::Data(b->handle_), size);
+    assert(read == size);
+
+    Handle<Value> argv[1] = { b->handle_ };
+    MakeCallback(handle_, oncdata_sym, 1, argv);
+  }
+}
+
+
+void Socket::EncOut() {
+  if (enc_out_.Size() > 0) {
+    int size = enc_out_.Size();
+    Buffer* b = Buffer::New(size);
+
+    int read = enc_out_.Read(Buffer::Data(b->handle_), size);
+    assert(read == size);
+
+    Handle<Value> argv[1] = { b->handle_ };
+    MakeCallback(handle_, onedata_sym, 1, argv);
+  }
+}
+
+
 void Socket::EmitEvent(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
@@ -451,27 +481,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     MakeCallback(s->handle_, oninit_sym, 1, argv);
   }
 
-  if (s->clear_out_.Size() > 0) {
-    int size = s->clear_out_.Size();
-    Buffer* b = Buffer::New(size);
-
-    int read = s->clear_out_.Read(Buffer::Data(b->handle_), size);
-    assert(read == size);
-
-    Handle<Value> argv[1] = { b->handle_ };
-    MakeCallback(s->handle_, oncdata_sym, 1, argv);
-  }
-
-  if (s->enc_out_.Size() > 0) {
-    int size = s->enc_out_.Size();
-    Buffer* b = Buffer::New(size);
-
-    int read = s->enc_out_.Read(Buffer::Data(b->handle_), size);
-    assert(read == size);
-
-    Handle<Value> argv[1] = { b->handle_ };
-    MakeCallback(s->handle_, onedata_sym, 1, argv);
-  }
+  s->ClearOut();
+  s->EncOut();
 
   if (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0) {
     s->ctx_->Enqueue(s);
@@ -479,6 +490,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
   }
 
   if (s->closing_ == 2 && !s->closed_) {
+    s->ClearOut();
+    s->EncOut();
     s->closed_ = true;
 
     // And finally emit close event
@@ -499,6 +512,7 @@ void Socket::HandleError(int err) {
 
 
 void Socket::TryGetNPN() {
+  if (initializing_ == 2) return;
   if (!SSL_is_init_finished(ssl_)) return;
 
   // Read NPN info if we didn't before
@@ -531,22 +545,13 @@ void Socket::Shutdown() {
     if (bytes != 0) goto emit;
     r = SSL_shutdown(ssl_);
 
-    if (r != 0) {
-      int err = SSL_get_error(ssl_, r);
-      if (err == SSL_ERROR_WANT_READ) {
-        // Wait for data to come
-        goto emit;
-      } else if (err == SSL_ERROR_WANT_WRITE) {
-        want_write_ = true;
-        goto emit;
-      } else {
-        // Error happened and recovery is impossible
-        // Fall through to closing_ = 2
-      }
+    if (r == 0) {
+      want_write_ = true;
+      goto emit;
     }
 
     // Wait for all iterations to execute before this
-    if (queued_ == 0) closing_ = 2;
+    if (r == -1 || queued_ == 0) closing_ = 2;
 
 emit:
     uv_async_send(event_cb_);
