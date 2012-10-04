@@ -523,33 +523,33 @@ void Socket::TryGetNPN() {
 
 void Socket::Shutdown() {
   if (closing_ != 2) {
-    // Emit event anyway
-    uv_async_send(event_cb_);
-
     int bytes = 0;
+    int r;
     bytes = clear_in_.Size();
 
     // Do not send shutdown if data wasn't transferred to the client
-    if (bytes != 0) return;
-    int r = SSL_shutdown(ssl_);
+    if (bytes != 0) goto emit;
+    r = SSL_shutdown(ssl_);
 
     if (r != 0) {
       int err = SSL_get_error(ssl_, r);
       if (err == SSL_ERROR_WANT_READ) {
         // Wait for data to come
-        return;
+        goto emit;
       } else if (err == SSL_ERROR_WANT_WRITE) {
         want_write_ = true;
-        return;
+        goto emit;
       } else {
         // Error happened and recovery is impossible
         // Fall through to closing_ = 2
       }
     }
 
-    // So we've succeeded, wait for enc out to be written to socket
-    // before closing it
-    closing_ = 2;
+    // Wait for all iterations to execute before this
+    if (queued_ == 0) closing_ = 2;
+
+emit:
+    uv_async_send(event_cb_);
   }
 }
 
