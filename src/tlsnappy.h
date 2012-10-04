@@ -78,14 +78,24 @@ class Socket : public ObjectWrap {
   inline void EncOut();
   static void EmitEvent(uv_async_t* handle, int status);
 
-  uv_mutex_t event_mtx_;
+  // How many times socket was queued before dequeuing
   int queued_;
+  ngx_queue_t member_;
+
+  // Mutex for invoking OnEvent callback
+  uv_mutex_t event_mtx_;
+
   volatile int closing_;
-  bool closed_;
   volatile int initializing_;
+  bool closed_;
   bool initialized_;
+  int shutdown_tries_;
+
+  // When SSL error happens this is filled with error code
   int err_;
-  bool sent_shutdown_;
+
+  // If true OnEvent() will retry reading from SSL's bio buffers
+  bool want_write_;
 
   Ring enc_in_;
   Ring enc_out_;
@@ -98,16 +108,14 @@ class Socket : public ObjectWrap {
   void HandleError(int err);
   void Shutdown();
 
-  bool want_write_;
-
   Context* ctx_;
   BIO* rbio_;
   BIO* wbio_;
   SSL* ssl_;
 
+  // NPN protocol
   char* npn_;
   int npn_len_;
-  ngx_queue_t member_;
 
   friend class Context;
 };

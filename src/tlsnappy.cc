@@ -345,11 +345,11 @@ Handle<Value> Socket::New(const Arguments& args) {
 
 Socket::Socket(Context* ctx) : queued_(0),
                                closing_(0),
-                               closed_(false),
                                initializing_(0),
+                               closed_(false),
                                initialized_(false),
+                               shutdown_tries_(0),
                                err_(0),
-                               sent_shutdown_(false),
                                want_write_(false),
                                ctx_(ctx),
                                npn_(NULL),
@@ -545,7 +545,8 @@ void Socket::Shutdown() {
     if (bytes != 0) goto emit;
     r = SSL_shutdown(ssl_);
 
-    if (r == 0) {
+    // Try only four times (copy pasted from Apache Httpd)
+    if (r == 0 && ++shutdown_tries_ < 4) {
       want_write_ = true;
       goto emit;
     }
