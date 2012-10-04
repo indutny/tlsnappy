@@ -74,15 +74,14 @@ class Socket : public ObjectWrap {
   static Handle<Value> EncIn(const Arguments& args);
   static Handle<Value> Close(const Arguments& args);
 
-  static void ClearOut(uv_async_t* handle, int status);
-  static void EncOut(uv_async_t* handle, int status);
-  static void OnClose(uv_async_t* handle, int status);
-  static void OnInit(uv_async_t* handle, int status);
+  static void EmitEvent(uv_async_t* handle, int status);
 
   uv_mutex_t event_mtx_;
   int queued_;
   volatile int closing_;
   bool closed_;
+  volatile int initializing_;
+  bool initialized_;
   int err_;
   bool sent_shutdown_;
 
@@ -90,10 +89,7 @@ class Socket : public ObjectWrap {
   Ring enc_out_;
   Ring clear_in_;
   Ring clear_out_;
-  uv_async_t* clear_out_cb_;
-  uv_async_t* enc_out_cb_;
-  uv_async_t* close_cb_;
-  uv_async_t* init_cb_;
+  uv_async_t* event_cb_;
 
   void OnEvent();
   void TryGetNPN();

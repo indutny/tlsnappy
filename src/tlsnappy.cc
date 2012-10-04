@@ -114,6 +114,7 @@ void Context::Loop(void* arg) {
   Context* ctx = reinterpret_cast<Context*>(arg);
 
   while (ctx->RunLoop()) {
+    // No op
   }
 }
 
@@ -345,6 +346,8 @@ Handle<Value> Socket::New(const Arguments& args) {
 Socket::Socket(Context* ctx) : queued_(0),
                                closing_(0),
                                closed_(false),
+                               initializing_(0),
+                               initialized_(false),
                                err_(0),
                                sent_shutdown_(false),
                                want_write_(false),
@@ -363,22 +366,10 @@ Socket::Socket(Context* ctx) : queued_(0),
 
   if (uv_mutex_init(&event_mtx_)) abort();
 
-  uv_async_t** handles[4] = { &enc_out_cb_,
-                              &clear_out_cb_,
-                              &close_cb_,
-                              &init_cb_ };
+  event_cb_ = new uv_async_t();
+  event_cb_->data = this;
 
-  for (int i = 0; i < 4; i++) {
-    uv_async_t* handle = new uv_async_t();
-
-    handle->data = this;
-    *handles[i] = handle;
-  }
-
-  if (uv_async_init(uv_default_loop(), enc_out_cb_, EncOut)) abort();
-  if (uv_async_init(uv_default_loop(), clear_out_cb_, ClearOut)) abort();
-  if (uv_async_init(uv_default_loop(), close_cb_, OnClose)) abort();
-  if (uv_async_init(uv_default_loop(), init_cb_, OnInit)) abort();
+  if (uv_async_init(uv_default_loop(), event_cb_, EmitEvent)) abort();
 
   ngx_queue_init(&member_);
 }
@@ -399,13 +390,7 @@ Socket::~Socket() {
 
   uv_mutex_destroy(&event_mtx_);
 
-  uv_async_t* handles[4] = { enc_out_cb_,
-                             clear_out_cb_,
-                             close_cb_,
-                             init_cb_ };
-  for (int i = 0; i < 4; i++) {
-    uv_close(reinterpret_cast<uv_handle_t*>(handles[i]), OnAsyncClose);
-  }
+  uv_close(reinterpret_cast<uv_handle_t*>(event_cb_), OnAsyncClose);
 
   delete[] npn_;
   npn_ = NULL;
@@ -454,71 +439,52 @@ Handle<Value> Socket::Close(const Arguments& args) {
 }
 
 
-void Socket::ClearOut(uv_async_t* handle, int status) {
+void Socket::EmitEvent(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
-  int size = s->clear_out_.Size();
-  Buffer* b = Buffer::New(size);
+  if (s->initializing_ == 2 && !s->initialized_) {
+    s->initialized_ = true;
 
-  int read = s->clear_out_.Read(Buffer::Data(b->handle_), size);
-  assert(read == size);
+    Handle<Value> argv[1] = { String::New(const_cast<char*>(s->npn_),
+                                          s->npn_len_) };
+    MakeCallback(s->handle_, oninit_sym, 1, argv);
+  }
 
-  Handle<Value> argv[1] = { b->handle_ };
-  MakeCallback(s->handle_, oncdata_sym, 1, argv);
-}
+  if (s->clear_out_.Size() > 0) {
+    int size = s->clear_out_.Size();
+    Buffer* b = Buffer::New(size);
 
+    int read = s->clear_out_.Read(Buffer::Data(b->handle_), size);
+    assert(read == size);
 
-void Socket::EncOut(uv_async_t* handle, int status) {
-  HandleScope scope;
-  Socket* s = reinterpret_cast<Socket*>(handle->data);
+    Handle<Value> argv[1] = { b->handle_ };
+    MakeCallback(s->handle_, oncdata_sym, 1, argv);
+  }
 
-  int size = s->enc_out_.Size();
-  Buffer* b = Buffer::New(size);
+  if (s->enc_out_.Size() > 0) {
+    int size = s->enc_out_.Size();
+    Buffer* b = Buffer::New(size);
 
-  int read = s->enc_out_.Read(Buffer::Data(b->handle_), size);
-  assert(read == size);
+    int read = s->enc_out_.Read(Buffer::Data(b->handle_), size);
+    assert(read == size);
 
-  Handle<Value> argv[1] = { b->handle_ };
-  MakeCallback(s->handle_, onedata_sym, 1, argv);
-}
+    Handle<Value> argv[1] = { b->handle_ };
+    MakeCallback(s->handle_, onedata_sym, 1, argv);
+  }
 
-
-void Socket::OnClose(uv_async_t* handle, int status) {
-  HandleScope scope;
-  Socket* s = reinterpret_cast<Socket*>(handle->data);
-
-  if (s->closed_) return;
-
-  int bytes = 0;
-  bytes += s->clear_in_.Size();
-  bytes += s->enc_in_.Size();
-
-  // Parse incoming bytes
-  if (bytes != 0 || s->closing_ != 2) {
+  if (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0) {
     s->ctx_->Enqueue(s);
     return;
   }
 
-  // Write all output data
-  ClearOut(s->clear_out_cb_, 0);
-  EncOut(s->enc_out_cb_, 0);
+  if (s->closing_ == 2 && !s->closed_) {
+    s->closed_ = true;
 
-  s->closed_ = true;
-
-  // And finally emit close event
-  MakeCallback(s->handle_, onclose_sym, 0, NULL);
-  s->Unref();
-}
-
-
-void Socket::OnInit(uv_async_t* handle, int status) {
-  HandleScope scope;
-  Socket* s = reinterpret_cast<Socket*>(handle->data);
-
-  Handle<Value> argv[1] = { String::New(const_cast<char*>(s->npn_),
-                                        s->npn_len_) };
-  MakeCallback(s->handle_, oninit_sym, 1, argv);
+    // And finally emit close event
+    MakeCallback(s->handle_, onclose_sym, 0, NULL);
+    s->Unref();
+  }
 }
 
 
@@ -550,14 +516,15 @@ void Socket::TryGetNPN() {
     }
   }
 
-  uv_async_send(init_cb_);
+  initializing_ = 2;
+  uv_async_send(event_cb_);
 }
 
 
 void Socket::Shutdown() {
   if (closing_ != 2) {
     // Emit event anyway
-    uv_async_send(close_cb_);
+    uv_async_send(event_cb_);
 
     int bytes = 0;
     bytes = clear_in_.Size();
@@ -580,7 +547,8 @@ void Socket::Shutdown() {
       }
     }
 
-    // So we've succeeded
+    // So we've succeeded, wait for enc out to be written to socket
+    // before closing it
     closing_ = 2;
   }
 }
@@ -652,7 +620,7 @@ loop_entry:
 
       clear_out_.Write(data, bytes);
 
-      uv_async_send(clear_out_cb_);
+      uv_async_send(event_cb_);
     } else if (closing_ != 2) {
       err = SSL_get_error(ssl_, bytes);
       if (err == SSL_ERROR_ZERO_RETURN) {
@@ -680,7 +648,7 @@ do_write:
       enc_out_.Write(data, bytes);
       TryGetNPN();
 
-      uv_async_send(enc_out_cb_);
+      uv_async_send(event_cb_);
     }
   } while (bytes == sizeof(data));
 
@@ -694,6 +662,7 @@ do_write:
     Shutdown();
   }
 
+  // Loop write again if shutdown needs to output anything
   if (want_write_) goto do_write;
 }
 
