@@ -7,6 +7,7 @@
 #include "ngx-queue.h"
 #include "ring.h"
 #include "openssl/ssl.h"
+#include "openssl/bio.h"
 #include "openssl/err.h"
 
 namespace tlsnappy {
@@ -94,9 +95,6 @@ class Socket : public ObjectWrap {
   // When SSL error happens this is filled with error code
   int err_;
 
-  // If true OnEvent() will retry reading from SSL's bio buffers
-  bool want_write_;
-
   Ring enc_in_;
   Ring enc_out_;
   Ring clear_in_;
@@ -109,6 +107,8 @@ class Socket : public ObjectWrap {
   void Shutdown();
 
   Context* ctx_;
+  Ring* ring_rbio_;
+  Ring* ring_wbio_;
   BIO* rbio_;
   BIO* wbio_;
   SSL* ssl_;

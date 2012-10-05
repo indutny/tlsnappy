@@ -350,7 +350,6 @@ Socket::Socket(Context* ctx) : queued_(0),
                                initialized_(false),
                                shutdown_tries_(0),
                                err_(0),
-                               want_write_(false),
                                ctx_(ctx),
                                npn_(NULL),
                                npn_len_(-1) {
@@ -361,6 +360,8 @@ Socket::Socket(Context* ctx) : queued_(0),
   wbio_ = BIO_new(BIO_snappy());
   assert(rbio_ != NULL);
   assert(wbio_ != NULL);
+  ring_rbio_ = reinterpret_cast<Ring*>(rbio_->ptr);
+  ring_wbio_ = reinterpret_cast<Ring*>(wbio_->ptr);
   SSL_set_bio(ssl_, rbio_, wbio_);
   SSL_set_accept_state(ssl_);
 
@@ -420,8 +421,9 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  s->enc_in_.Write(Buffer::Data(args[0].As<Object>()),
-                   Buffer::Length(args[0].As<Object>()));
+  BIO_clear_retry_flags(s->rbio_);
+  s->ring_rbio_->Write(Buffer::Data(args[0].As<Object>()),
+                       Buffer::Length(args[0].As<Object>()));
 
   s->ctx_->Enqueue(s);
 
@@ -456,11 +458,11 @@ void Socket::ClearOut() {
 
 
 void Socket::EncOut() {
-  if (enc_out_.Size() > 0) {
-    int size = enc_out_.Size();
+  if (ring_wbio_->Size() > 0) {
+    int size = ring_wbio_->Size();
     Buffer* b = Buffer::New(size);
 
-    int read = enc_out_.Read(Buffer::Data(b->handle_), size);
+    int read = ring_wbio_->Read(Buffer::Data(b->handle_), size);
     assert(read == size);
 
     Handle<Value> argv[1] = { b->handle_ };
@@ -536,50 +538,28 @@ void Socket::TryGetNPN() {
 
 
 void Socket::Shutdown() {
-  if (closing_ != 2) {
-    int bytes = 0;
-    int r;
-    bytes = clear_in_.Size();
+  if (closing_ == 2) return;
+  int bytes = 0;
+  int r;
+  bytes = clear_in_.Size();
 
-    // Do not send shutdown if data wasn't transferred to the client
-    if (bytes != 0) goto emit;
-    r = SSL_shutdown(ssl_);
+  // Do not send shutdown if data wasn't transferred to the client
+  if (bytes != 0) return;
+  r = SSL_shutdown(ssl_);
 
-    // Try only four times (copy pasted from Apache Httpd)
-    if (r == 0 && ++shutdown_tries_ < 4) {
-      want_write_ = true;
-      goto emit;
-    }
+  // Try only four times (copy pasted from Apache Httpd)
+  if (r == 0 && ++shutdown_tries_ < 4) return;
 
-    // Wait for all iterations to execute before this
-    if (r == -1 || queued_ == 0) closing_ = 2;
-
-emit:
-    uv_async_send(event_cb_);
-  }
+  // Wait for all iterations to execute before this
+  if (r == -1 || queued_ == 0) closing_ = 2;
 }
 
 
 void Socket::OnEvent() {
   int r;
   int err;
-  int enc_bytes;
-  char enc_data[10240];
   int bytes;
   char data[10240];
-
-loop_entry:
-
-  do {
-    // Read data from rings
-    enc_bytes = enc_in_.Read(enc_data, sizeof(enc_data));
-
-    // Write encrypted data
-    if (enc_bytes > 0) {
-      r = BIO_write(rbio_, enc_data, enc_bytes);
-      assert(r == enc_bytes);
-    }
-  } while (enc_in_.Size() > 0);
 
   do {
     // Write clear data
@@ -603,7 +583,7 @@ loop_entry:
           // Ignore
           break;
         } else if (err == SSL_ERROR_WANT_WRITE) {
-          want_write_ = true;
+          // Ignore
           break;
         } else {
           if (err_ == 0) {
@@ -635,7 +615,7 @@ loop_entry:
         // Ignore
         break;
       } else if (err == SSL_ERROR_WANT_WRITE) {
-        want_write_ = true;
+        // Ignore
       } else {
         if (err_ == 0) {
           err_ = err;
@@ -646,30 +626,11 @@ loop_entry:
     }
   } while (bytes > 0);
 
-do_write:
-  // Read encrypted data
-  do {
-    bytes = BIO_read(wbio_, data, sizeof(data));
-    if (bytes > 0) {
-      enc_out_.Write(data, bytes);
-      TryGetNPN();
-
-      uv_async_send(event_cb_);
-    }
-  } while (bytes == sizeof(data));
-
-  // Loop everything again if write was required
-  if (want_write_) {
-    want_write_ = false;
-    goto loop_entry;
-  }
-
   if (closing_) {
     Shutdown();
   }
 
-  // Loop write again if shutdown needs to output anything
-  if (want_write_) goto do_write;
+  uv_async_send(event_cb_);
 }
 
 
