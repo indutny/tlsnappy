@@ -15,7 +15,10 @@ var options = {
   threads: needsCluster ? Math.ceil(Math.sqrt(threads)) : undefined
 };
 
-var big = new Array(1024).join('abc');
+var big = new Buffer(new Array(1024).join('abc')),
+    verybig = new Buffer(100000);
+
+verybig.fill('A');
 
 function handler(req, res) {
   // Just for benchmarking
@@ -26,6 +29,10 @@ function handler(req, res) {
 
   if (req.url === '/big') {
     return res.end(big);
+  }
+
+  if (req.url === '/verybig') {
+    return res.end(verybig);
   }
 
   res.end('hello world');

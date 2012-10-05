@@ -557,7 +557,8 @@ void Socket::OnEvent() {
 
   do {
     // Write clear data
-    bytes = clear_in_.Peek(data, clear_in_.Size());
+    unsigned int size = clear_in_.Size();
+    bytes = clear_in_.Peek(data, sizeof(data) > size ? size : sizeof(data));
 
     if (bytes > 0) {
       r = SSL_write(ssl_, data, bytes);

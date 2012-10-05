@@ -113,6 +113,7 @@ int Ring::Peek(char* data, int size) {
     if (avail == 0) break;
     int bytes = avail > left ? left : avail;
 
+    assert(current->roffset + bytes <= current->woffset);
     memcpy(data + offset, current->data + current->roffset, bytes);
 
     offset += bytes;
