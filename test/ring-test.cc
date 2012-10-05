@@ -11,9 +11,10 @@ void* producer(void* arg) {
   Ring* r = reinterpret_cast<Ring*>(arg);
   char out[kBufsize];
   int current = 0;
+  int limit = 10 * sizeof(out);
 
   while (true) {
-    if (r->Size() > 10 * sizeof(out)) {
+    if (r->Size() > limit) {
       usleep(30000);
       continue;
     }
@@ -33,10 +34,11 @@ void* consumer(void* arg) {
   Ring* r = reinterpret_cast<Ring*>(arg);
   char in[999];
   int last = 0;
+  int max = sizeof(in);
 
   while (true) {
     int size = r->Size();
-    int bytes = r->Peek(in, size > sizeof(in) ? sizeof(in) : size);
+    int bytes = r->Peek(in, size > max ? max : size);
     for (int i = 0; i < bytes; i++) {
       unsigned char uin = static_cast<unsigned char>(in[i]);
       if (uin != last) {
