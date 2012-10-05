@@ -480,7 +480,7 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
   s->ClearOut();
   s->EncOut();
 
-  if (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0) {
+  if (s->err_ == 0 && (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0)) {
     s->ctx_->Enqueue(s);
     return;
   }
@@ -498,6 +498,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
 
 
 void Socket::HandleError(int err) {
+  err_ = err;
+
   // Flush all incoming data
   clear_in_.Read(NULL, clear_in_.Size());
   enc_in_.Read(NULL, enc_in_.Size());
@@ -580,10 +582,7 @@ void Socket::OnEvent() {
           // Ignore
           break;
         } else {
-          if (err_ == 0) {
-            err_ = err;
-            HandleError(err);
-          }
+          HandleError(err);
           break;
         }
       }
@@ -611,10 +610,7 @@ void Socket::OnEvent() {
       } else if (err == SSL_ERROR_WANT_WRITE) {
         // Ignore
       } else {
-        if (err_ == 0) {
-          err_ = err;
-          HandleError(err);
-        }
+        HandleError(err);
         break;
       }
     }
