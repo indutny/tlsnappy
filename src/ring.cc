@@ -94,6 +94,11 @@ int Ring::Read(char* data, int size) {
       b->roffset = 0;
       b->woffset = 0;
 
+      // Ring can not be empty that point,
+      // if it is - that means that writer hasn't created new page after filling
+      // it's head. We need to wait for it in this case
+      while (rhead_ == rhead_->next) {}
+
       // Move rhead
       rhead_ = rhead_->next;
     }
