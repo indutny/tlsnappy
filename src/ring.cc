@@ -29,6 +29,7 @@ Ring::~Ring() {
 void Ring::Write(const char* data, int size) {
   int left = size;
   int offset = 0;
+  int woffset;
   RingBuffer* b = whead_;
 
   while (left > 0) {
@@ -42,13 +43,14 @@ void Ring::Write(const char* data, int size) {
     offset += bytes;
     left -= bytes;
 
-    b->woffset += bytes;
+    woffset = b->woffset + bytes;
+    b->woffset = woffset;
     ATOMIC_ADD(total_, bytes);
 
-    if (b->woffset == sizeof(b->data)) {
+    if (woffset == sizeof(b->data)) {
       RingBuffer* next = b->next;
 
-      if (next == rhead_) {
+      if (next->woffset != 0) {
         // Tail is full now - get a new one
         next = new RingBuffer();
         next->next = b->next;
@@ -67,11 +69,12 @@ void Ring::Write(const char* data, int size) {
 
 
 int Ring::Read(char* data, int size) {
+  RingBuffer* b = rhead_;
   int left = size;
   int offset = 0;
+  int roffset;
 
   while (total_ > 0 && left > 0) {
-    RingBuffer* b = rhead_;
     int avail = b->woffset - b->roffset;
     int bytes = avail > left ? left : avail;
 
@@ -83,9 +86,10 @@ int Ring::Read(char* data, int size) {
 
     left -= bytes;
     offset += bytes;
-    b->roffset += bytes;
+    roffset = b->roffset + bytes;
+    b->roffset = roffset;
     ATOMIC_SUB(total_, bytes);
-    assert(b->roffset >= 0);
+    assert(roffset >= 0);
     assert(total_ >= 0);
 
     if (b->roffset == sizeof(b->data)) {
@@ -97,10 +101,11 @@ int Ring::Read(char* data, int size) {
       // Ring can not be empty that point,
       // if it is - that means that writer hasn't created new page after filling
       // it's head. We need to wait for it in this case
-      while (rhead_ == rhead_->next) {}
+      while (b == *const_cast<volatile RingBuffer**>(&b->next)) {}
 
       // Move rhead
-      rhead_ = rhead_->next;
+      b = b->next;
+      rhead_ = b;
     }
   }
 
