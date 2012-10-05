@@ -45,7 +45,6 @@ void Ring::Write(const char* data, int size) {
 
     woffset = b->woffset + bytes;
     b->woffset = woffset;
-    ATOMIC_ADD(total_, bytes);
 
     if (woffset == sizeof(b->data)) {
       RingBuffer* next = b->next;
@@ -71,6 +70,8 @@ void Ring::Write(const char* data, int size) {
       assert(whead_->woffset == 0);
       assert(whead_->roffset == 0);
     }
+
+    ATOMIC_ADD(total_, bytes);
   }
   assert(size == offset);
 }
