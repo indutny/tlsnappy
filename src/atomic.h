@@ -11,10 +11,10 @@
 # elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || \
        defined( __i686__ ) || defined( __x86_64__ )
 
-# define ATOMIC_ADD(arg, num)  asm ("lock add %1, %2\n" : \
-                                    "=m" (arg) : "d" (num), "m" (arg))
-# define ATOMIC_SUB(arg, num)  asm ("lock sub %1, %2\n" : \
-                                    "=m" (arg) : "d" (num), "m" (arg))
+# define ATOMIC_ADD(arg, num)  asm volatile ("lock add %1, %2\n" : \
+                                             "=m" (arg) : "d" (num), "m" (arg))
+# define ATOMIC_SUB(arg, num)  asm volatile ("lock sub %1, %2\n" : \
+                                             "=m" (arg) : "d" (num), "m" (arg))
 
 # else
 
