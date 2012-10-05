@@ -1,4 +1,5 @@
 #include "ring.h"
+#include "atomic.h"
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -40,7 +41,7 @@ void Ring::Write(const char* data, int size) {
     left -= bytes;
 
     b->woffset += bytes;
-    __sync_fetch_and_add(&total_, bytes);
+    ATOMIC_ADD(total_, bytes);
 
     if (b->woffset == sizeof(b->data)) {
       RingBuffer* next = b->next;
@@ -81,7 +82,7 @@ int Ring::Read(char* data, int size) {
     left -= bytes;
     offset += bytes;
     b->roffset += bytes;
-    __sync_fetch_and_sub(&total_, bytes);
+    ATOMIC_SUB(total_, bytes);
     assert(b->roffset >= 0);
     assert(total_ >= 0);
 

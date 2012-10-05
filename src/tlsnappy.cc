@@ -40,7 +40,6 @@ Context::Context() : status_(kRunning), npn_(NULL) {
 
   if (uv_sem_init(&event_, 0)) abort();
   if (uv_mutex_init(&queue_mtx_)) abort();
-  if (uv_mutex_init(&mtx_)) abort();
   ngx_queue_init(&queue_);
 
   if (uv_thread_create(&worker_, Context::Loop, this)) abort();
@@ -57,7 +56,6 @@ Context::~Context() {
 
   uv_sem_destroy(&event_);
   uv_mutex_destroy(&queue_mtx_);
-  uv_mutex_destroy(&mtx_);
 
   SSL_CTX_free(ctx_);
   ctx_ = NULL;
@@ -73,7 +71,6 @@ int Context::Advertise(SSL *s,
                        unsigned int *len,
                        void *arg) {
   Context* c = reinterpret_cast<Context*>(arg);
-  uv_mutex_lock(&c->mtx_);
   if (c->npn_ != NULL) {
     *data = c->npn_;
     *len = c->npn_len_;
@@ -81,7 +78,6 @@ int Context::Advertise(SSL *s,
     *data = reinterpret_cast<const unsigned char*>("");
     *len = 0;
   }
-  uv_mutex_unlock(&c->mtx_);
 
   return SSL_TLSEXT_ERR_OK;
 }
@@ -184,10 +180,8 @@ Handle<Value> Context::SetNPN(const Arguments& args) {
   unsigned char* npn = new unsigned char[len];
   memcpy(npn, data, len);
 
-  uv_mutex_lock(&ctx->mtx_);
-  ctx->npn_ = npn;
   ctx->npn_len_ = len;
-  uv_mutex_unlock(&ctx->mtx_);
+  ctx->npn_ = npn;
 
   return Null();
 }

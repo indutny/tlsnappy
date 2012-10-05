@@ -52,7 +52,6 @@ class Context : public ObjectWrap {
   int npn_len_;
   uv_sem_t event_;
   uv_mutex_t queue_mtx_;
-  uv_mutex_t mtx_;
   ngx_queue_t queue_;
   uv_thread_t worker_;
 
