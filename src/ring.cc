@@ -1,5 +1,6 @@
 #include "ring.h"
 #include "atomic.h"
+#include "pa_memorybarrier.h"
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -36,6 +37,7 @@ void Ring::Write(const char* data, int size) {
 
     assert(static_cast<size_t>(b->woffset + bytes) <= sizeof(b->data));
     memcpy(b->data + b->woffset, data + offset, bytes);
+    PaUtil_FullMemoryBarrier();
 
     offset += bytes;
     left -= bytes;
