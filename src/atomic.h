@@ -28,4 +28,4 @@
 
 #endif
 
-#endif _SRC_ATOMIC_H_
+#endif // _SRC_ATOMIC_H_
