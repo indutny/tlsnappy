@@ -38,7 +38,6 @@ void Ring::Write(const char* data, int size) {
 
     assert(static_cast<size_t>(b->woffset + bytes) <= sizeof(b->data));
     memcpy(b->data + b->woffset, data + offset, bytes);
-    PaUtil_FullMemoryBarrier();
 
     offset += bytes;
     left -= bytes;
@@ -71,6 +70,8 @@ void Ring::Write(const char* data, int size) {
       assert(whead_->roffset == 0);
     }
 
+    // Ensure that all writes finished before this
+    PaUtil_WriteMemoryBarrier();
     ATOMIC_ADD(total_, bytes);
   }
   assert(size == offset);
