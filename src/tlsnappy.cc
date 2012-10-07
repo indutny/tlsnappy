@@ -8,8 +8,7 @@ namespace tlsnappy {
 using namespace v8;
 using namespace node;
 
-static Persistent<String> onedata_sym;
-static Persistent<String> oncdata_sym;
+static Persistent<String> oncycle_sym;
 static Persistent<String> onclose_sym;
 static Persistent<String> oninit_sym;
 
@@ -31,10 +30,8 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   // Mitigate BEAST attacks
   SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
   SSL_CTX_set_options(ctx_, SSL_OP_NO_COMPRESSION);
-  SSL_CTX_set_options(ctx_, SSL_OP_SINGLE_DH_USE);
   SSL_CTX_set_mode(ctx_, SSL_MODE_RELEASE_BUFFERS);
   SSL_CTX_set_session_cache_mode(ctx_, SSL_SESS_CACHE_OFF);
-  SSL_CTX_set_read_ahead(ctx_, 1);
 
   // NPN
   SSL_CTX_set_next_protos_advertised_cb(ctx_, Context::Advertise, this);
@@ -436,8 +433,10 @@ Handle<Value> Socket::Close(const Arguments& args) {
 }
 
 
-void Socket::ClearOut() {
+void Socket::Cycle() {
   HandleScope scope;
+  Handle<Value> cdata;
+  Handle<Value> edata;
 
   if (clear_out_.Size() > 0) {
     int size = clear_out_.Size();
@@ -446,13 +445,11 @@ void Socket::ClearOut() {
     int read = clear_out_.Read(Buffer::Data(b->handle_), size);
     assert(read == size);
 
-    Handle<Value> argv[1] = { b->handle_ };
-    MakeCallback(handle_, oncdata_sym, 1, argv);
+    cdata = b->handle_;
+  } else {
+    cdata = Null();
   }
-}
 
-
-void Socket::EncOut() {
   if (ring_wbio_->Size() > 0) {
     int size = ring_wbio_->Size();
     Buffer* b = Buffer::New(size);
@@ -460,9 +457,13 @@ void Socket::EncOut() {
     int read = ring_wbio_->Read(Buffer::Data(b->handle_), size);
     assert(read == size);
 
-    Handle<Value> argv[1] = { b->handle_ };
-    MakeCallback(handle_, onedata_sym, 1, argv);
+    edata = b->handle_;
+  } else {
+    edata = Null();
   }
+
+  Handle<Value> argv[2] = { cdata, edata };
+  MakeCallback(handle_, oncycle_sym, 2, argv);
 }
 
 
@@ -478,8 +479,7 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     MakeCallback(s->handle_, oninit_sym, 1, argv);
   }
 
-  s->ClearOut();
-  s->EncOut();
+  s->Cycle();
 
   if (s->err_ == 0 && (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0)) {
     s->ctx_->Enqueue(s);
@@ -487,8 +487,7 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
   }
 
   if (s->closing_ == 2 && !s->closed_) {
-    s->ClearOut();
-    s->EncOut();
+    s->Cycle();
     s->closed_ = true;
 
     // And finally emit close event
@@ -656,8 +655,7 @@ void Socket::Init(Handle<Object> target) {
 void Init(Handle<Object> target) {
   HandleScope scope;
 
-  onedata_sym = Persistent<String>::New(String::NewSymbol("onedata"));
-  oncdata_sym = Persistent<String>::New(String::NewSymbol("oncdata"));
+  oncycle_sym = Persistent<String>::New(String::NewSymbol("oncycle"));
   onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
   oninit_sym = Persistent<String>::New(String::NewSymbol("oninit"));
 

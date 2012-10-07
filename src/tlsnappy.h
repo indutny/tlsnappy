@@ -74,8 +74,7 @@ class Socket : public ObjectWrap {
   static Handle<Value> EncIn(const Arguments& args);
   static Handle<Value> Close(const Arguments& args);
 
-  inline void ClearOut();
-  inline void EncOut();
+  inline void Cycle();
   static void EmitEvent(uv_async_t* handle, int status);
 
   // How many times socket was queued before dequeuing
