@@ -30,6 +30,7 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   // Mitigate BEAST attacks
   SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
   SSL_CTX_set_options(ctx_, SSL_OP_NO_COMPRESSION);
+  SSL_CTX_set_options(ctx_, SSL_OP_SINGLE_DH_USE);
   SSL_CTX_set_mode(ctx_, SSL_MODE_RELEASE_BUFFERS);
   SSL_CTX_set_session_cache_mode(ctx_, SSL_SESS_CACHE_OFF);
 
