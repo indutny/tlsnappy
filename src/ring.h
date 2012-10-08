@@ -11,7 +11,7 @@ class RingBuffer {
   RingBuffer* next;
   volatile int roffset;
   volatile int woffset;
-  char data[16 * 1024];
+  char data[10 * 1024];
 };
 
 class Ring {

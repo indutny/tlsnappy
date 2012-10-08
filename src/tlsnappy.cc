@@ -130,7 +130,7 @@ bool Context::RunLoop() {
   if (!ngx_queue_empty(&queue_)) {
     ngx_queue_t* member = ngx_queue_head(&queue_);
     socket = container_of(member, Socket, member_);
-    if (--socket->queued_ == 0 || socket->closed_ == 2) {
+    if (--socket->queued_ == 0) {
       ngx_queue_remove(member);
       ngx_queue_init(member);
 
@@ -353,10 +353,10 @@ Socket::Socket(Context* ctx) : queued_(0),
                                shutdown_tries_(0),
                                err_(0),
                                ctx_(ctx),
+                               ssl_(NULL),
                                npn_(NULL),
                                npn_len_(-1) {
   ctx_->Ref();
-  ssl_ = ctx_->GetSSL();
 
   rbio_ = BIO_new(BIO_snappy());
   wbio_ = BIO_new(BIO_snappy());
@@ -364,8 +364,6 @@ Socket::Socket(Context* ctx) : queued_(0),
   assert(wbio_ != NULL);
   ring_rbio_ = reinterpret_cast<Ring*>(rbio_->ptr);
   ring_wbio_ = reinterpret_cast<Ring*>(wbio_->ptr);
-  SSL_set_bio(ssl_, rbio_, wbio_);
-  SSL_set_accept_state(ssl_);
 
   event_cb_ = new uv_async_t();
   event_cb_->data = this;
@@ -388,9 +386,6 @@ void OnAsyncClose(uv_handle_t* handle) {
 Socket::~Socket() {
   assert(ngx_queue_empty(&member_));
   ctx_->Unref();
-
-  SSL_free(ssl_);
-  ssl_ = NULL;
 
   uv_close(reinterpret_cast<uv_handle_t*>(event_cb_), OnAsyncClose);
   uv_close(reinterpret_cast<uv_handle_t*>(close_cb_), OnAsyncClose);
@@ -579,6 +574,13 @@ void Socket::OnEvent() {
   int bytes;
   char data[10240];
 
+  // Lazy init ssl
+  if (ssl_ == NULL) {
+    ssl_ = ctx_->GetSSL();
+    SSL_set_bio(ssl_, rbio_, wbio_);
+    SSL_set_accept_state(ssl_);
+  }
+
   do {
     // Write clear data
     bytes = clear_in_.Peek(data, sizeof(data));
@@ -649,6 +651,11 @@ void Socket::OnEvent() {
 void Socket::Close() {
   if (closed_ != 2) return;
   closed_ = 3;
+
+  if (ssl_ != NULL) {
+    SSL_free(ssl_);
+    ssl_ = NULL;
+  }
 
   uv_async_send(close_cb_);
 }
