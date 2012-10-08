@@ -389,6 +389,9 @@ Socket::~Socket() {
   assert(ngx_queue_empty(&member_));
   ctx_->Unref();
 
+  SSL_free(ssl_);
+  ssl_ = NULL;
+
   uv_close(reinterpret_cast<uv_handle_t*>(event_cb_), OnAsyncClose);
   uv_close(reinterpret_cast<uv_handle_t*>(close_cb_), OnAsyncClose);
 
@@ -646,8 +649,6 @@ void Socket::OnEvent() {
 void Socket::Close() {
   if (closed_ != 2) return;
   closed_ = 3;
-  SSL_free(ssl_);
-  ssl_ = NULL;
 
   uv_async_send(close_cb_);
 }
