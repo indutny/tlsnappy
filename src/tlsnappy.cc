@@ -679,7 +679,7 @@ void Socket::OnEvent() {
 
 
 void Socket::Close() {
-  if (closed_ != 2) return;
+  if (queued_ != 0 || closed_ != 2) return;
   closed_ = 3;
 
   if (ssl_ != NULL) {
