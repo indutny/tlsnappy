@@ -83,6 +83,7 @@ int Context::Advertise(SSL *s,
 
 
 void Context::Enqueue(Socket* s) {
+  // Allow calling only once after close
   if (s->closed_ == 2) return;
   if (s->closed_ == 1) {
     s->closed_ = 2;
