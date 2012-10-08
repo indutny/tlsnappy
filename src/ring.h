@@ -17,8 +17,9 @@ class RingBuffer {
 class Ring {
  public:
   Ring();
-
   ~Ring();
+
+  void Dump();
 
   inline int Size() {
     return total_;

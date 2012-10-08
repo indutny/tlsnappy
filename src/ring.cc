@@ -26,6 +26,28 @@ Ring::~Ring() {
 }
 
 
+void Ring::Dump() {
+  fprintf(stdout, "-- ring %p dump start --\n", this);
+  RingBuffer* current = &head_;
+  do {
+    char flags[4];
+    flags[0] = current == rhead_ ? 'r' : ' ';
+    flags[1] = current == whead_ ? 'w' : ' ';
+    flags[2] = current == &head_ ? 's' : ' ';
+    flags[3] = 0;
+
+    fprintf(stdout, "# %d %d (%d %d) %s\n",
+            current->roffset,
+            current->woffset,
+            0,
+            0,
+            flags);
+    current = current->next;
+  } while (current != &head_);
+  fprintf(stdout, "-- ring %p dump end --\n", this);
+}
+
+
 void Ring::Write(const char* data, int size) {
   int left = size;
   int offset = 0;
@@ -48,7 +70,8 @@ void Ring::Write(const char* data, int size) {
     if (woffset == sizeof(b->data)) {
       RingBuffer* next = b->next;
 
-      if (next->roffset == sizeof(next->data) &&
+      if (rhead_ != next &&
+          next->roffset == sizeof(next->data) &&
           next->woffset == sizeof(next->data)) {
         // Fully written and read buffer is the same thing as empty
         next->roffset = 0;
@@ -70,7 +93,6 @@ void Ring::Write(const char* data, int size) {
       assert(whead_->roffset == 0);
     }
 
-    // Ensure that all writes finished before this
     PaUtil_WriteMemoryBarrier();
     ATOMIC_ADD(total_, bytes);
   }
@@ -85,6 +107,8 @@ int Ring::Read(char* data, int size) {
   int roffset;
 
   while (total_ > 0 && left > 0) {
+    PaUtil_ReadMemoryBarrier();
+
     int avail = b->woffset - b->roffset;
     int bytes = avail > left ? left : avail;
 
@@ -102,8 +126,6 @@ int Ring::Read(char* data, int size) {
     ATOMIC_SUB(total_, bytes);
 
     assert(roffset >= 0);
-    // XXX: Figure out why total_ is negative here sometimes
-    // assert(total_ >= 0);
 
     if (roffset == sizeof(b->data)) {
       // Move rhead if we can't read there anymore

@@ -142,7 +142,7 @@ bool Context::RunLoop() {
   if (socket == NULL) return true;
 
   // Emit final event
-  if (socket->closed_) {
+  if (socket->queued_ == 0 && socket->closed_) {
     socket->Close();
     return true;
   }
@@ -679,7 +679,7 @@ void Socket::OnEvent() {
 
 
 void Socket::Close() {
-  if (queued_ != 0 || closed_ != 2) return;
+  if (closed_ != 2) return;
   closed_ = 3;
 
   if (ssl_ != NULL) {
