@@ -569,7 +569,7 @@ void Socket::Shutdown() {
   if (r == 0 && ++shutdown_tries_ < 4) return;
 
   // Wait for all iterations to execute before this
-  if (r == -1) closing_ = 2;
+  if (r == -1 || queued_ == 0) closing_ = 2;
 }
 
 
