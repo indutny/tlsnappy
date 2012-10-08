@@ -76,17 +76,15 @@ class Socket : public ObjectWrap {
 
   inline void Cycle();
   static void EmitEvent(uv_async_t* handle, int status);
+  static void OnClose(uv_async_t* handle, int status);
 
   // How many times socket was queued before dequeuing
   int queued_;
   ngx_queue_t member_;
 
-  // Mutex for invoking OnEvent callback
-  uv_mutex_t event_mtx_;
-
   volatile int closing_;
   volatile int initializing_;
-  bool closed_;
+  volatile int closed_;
   bool initialized_;
   int shutdown_tries_;
 
@@ -98,8 +96,10 @@ class Socket : public ObjectWrap {
   Ring clear_in_;
   Ring clear_out_;
   uv_async_t* event_cb_;
+  uv_async_t* close_cb_;
 
   void OnEvent();
+  void Close();
   void TryGetNPN();
   void HandleError(int err);
   void Shutdown();

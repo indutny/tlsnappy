@@ -83,6 +83,11 @@ int Context::Advertise(SSL *s,
 
 
 void Context::Enqueue(Socket* s) {
+  if (s->closed_ == 2) return;
+  if (s->closed_ == 1) {
+    s->closed_ = 2;
+  }
+
   uv_mutex_lock(&queue_mtx_);
   // Prevent double insertions
   if (ngx_queue_empty(&s->member_)) {
@@ -125,9 +130,15 @@ bool Context::RunLoop() {
   if (!ngx_queue_empty(&queue_)) {
     ngx_queue_t* member = ngx_queue_head(&queue_);
     socket = container_of(member, Socket, member_);
-    if (--socket->queued_ == 0) {
+    if (--socket->queued_ == 0 || socket->closed_ == 2) {
       ngx_queue_remove(member);
       ngx_queue_init(member);
+
+      // Emit final event
+      if (socket->closed_) {
+        socket->Close();
+        socket = NULL;
+      }
     }
   }
 
@@ -136,9 +147,7 @@ bool Context::RunLoop() {
   // Continue looping if there're no sockets yet
   if (socket == NULL) return true;
 
-  uv_mutex_lock(&socket->event_mtx_);
   socket->OnEvent();
-  uv_mutex_unlock(&socket->event_mtx_);
 
   return true;
 }
@@ -339,7 +348,7 @@ Handle<Value> Socket::New(const Arguments& args) {
 Socket::Socket(Context* ctx) : queued_(0),
                                closing_(0),
                                initializing_(0),
-                               closed_(false),
+                               closed_(0),
                                initialized_(false),
                                shutdown_tries_(0),
                                err_(0),
@@ -358,12 +367,14 @@ Socket::Socket(Context* ctx) : queued_(0),
   SSL_set_bio(ssl_, rbio_, wbio_);
   SSL_set_accept_state(ssl_);
 
-  if (uv_mutex_init(&event_mtx_)) abort();
-
   event_cb_ = new uv_async_t();
   event_cb_->data = this;
 
   if (uv_async_init(uv_default_loop(), event_cb_, EmitEvent)) abort();
+
+  close_cb_ = new uv_async_t();
+  close_cb_->data = this;
+  if (uv_async_init(uv_default_loop(), close_cb_, OnClose)) abort();
 
   ngx_queue_init(&member_);
 }
@@ -375,16 +386,11 @@ void OnAsyncClose(uv_handle_t* handle) {
 
 
 Socket::~Socket() {
-  uv_mutex_lock(&event_mtx_);
-  uv_mutex_unlock(&event_mtx_);
-
   assert(ngx_queue_empty(&member_));
-  SSL_free(ssl_);
   ctx_->Unref();
 
-  uv_mutex_destroy(&event_mtx_);
-
   uv_close(reinterpret_cast<uv_handle_t*>(event_cb_), OnAsyncClose);
+  uv_close(reinterpret_cast<uv_handle_t*>(close_cb_), OnAsyncClose);
 
   delete[] npn_;
   npn_ = NULL;
@@ -489,12 +495,24 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
 
   if (s->closing_ == 2 && !s->closed_) {
     s->Cycle();
-    s->closed_ = true;
+    s->closed_ = 1;
 
     // And finally emit close event
     MakeCallback(s->handle_, onclose_sym, 0, NULL);
-    s->Unref();
+
+    // Enqueue socket for finalizing all OnEvent invokations
+    s->ctx_->Enqueue(s);
+    return;
   }
+}
+
+
+void Socket::OnClose(uv_async_t* handle, int status) {
+  HandleScope scope;
+  Socket* s = reinterpret_cast<Socket*>(handle->data);
+
+  // Final call - let GC collect socket
+  s->Unref();
 }
 
 
@@ -548,7 +566,7 @@ void Socket::Shutdown() {
   if (r == 0 && ++shutdown_tries_ < 4) return;
 
   // Wait for all iterations to execute before this
-  if (r == -1 || queued_ == 0) closing_ = 2;
+  if (r == -1) closing_ = 2;
 }
 
 
@@ -622,6 +640,16 @@ void Socket::OnEvent() {
   }
 
   uv_async_send(event_cb_);
+}
+
+
+void Socket::Close() {
+  if (closed_ != 2) return;
+  closed_ = 3;
+  SSL_free(ssl_);
+  ssl_ = NULL;
+
+  uv_async_send(close_cb_);
 }
 
 
