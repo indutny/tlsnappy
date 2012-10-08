@@ -72,6 +72,8 @@ class Socket : public ObjectWrap {
 
   static Handle<Value> ClearIn(const Arguments& args);
   static Handle<Value> EncIn(const Arguments& args);
+  static Handle<Value> ClearOut(const Arguments& args);
+  static Handle<Value> EncOut(const Arguments& args);
   static Handle<Value> Close(const Arguments& args);
 
   inline void Cycle();

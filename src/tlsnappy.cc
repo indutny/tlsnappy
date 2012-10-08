@@ -133,12 +133,6 @@ bool Context::RunLoop() {
     if (--socket->queued_ == 0) {
       ngx_queue_remove(member);
       ngx_queue_init(member);
-
-      // Emit final event
-      if (socket->closed_) {
-        socket->Close();
-        socket = NULL;
-      }
     }
   }
 
@@ -146,6 +140,12 @@ bool Context::RunLoop() {
 
   // Continue looping if there're no sockets yet
   if (socket == NULL) return true;
+
+  // Emit final event
+  if (socket->closed_) {
+    socket->Close();
+    return true;
+  }
 
   socket->OnEvent();
 
@@ -428,7 +428,60 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 }
 
 
+Handle<Value> Socket::ClearOut(const Arguments& args) {
+  HandleScope scope;
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  if (args.Length() < 3) {
+    return ThrowException(String::New("Three arguments are required"));
+  }
+
+  char* data = Buffer::Data(args[0].As<Object>());
+  size_t size = Buffer::Length(args[0].As<Object>());
+
+  size_t off = args[1]->Int32Value();
+  size_t len = args[2]->Int32Value();
+
+  assert(size >= off + len);
+
+  int res = s->clear_out_.Read(data + off, len);
+
+  return scope.Close(Number::New(res));
+}
+
+
+Handle<Value> Socket::EncOut(const Arguments& args) {
+  HandleScope scope;
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+    return ThrowException(String::New("First argument should be Buffer"));
+  }
+
+  if (args.Length() < 3) {
+    return ThrowException(String::New("Three arguments are required"));
+  }
+
+  char* data = Buffer::Data(args[0].As<Object>());
+  size_t size = Buffer::Length(args[0].As<Object>());
+
+  size_t off = args[1]->Int32Value();
+  size_t len = args[2]->Int32Value();
+
+  assert(size >= off + len);
+
+  int res = s->ring_wbio_->Read(data + off, len);
+
+  return scope.Close(Number::New(res));
+}
+
+
 Handle<Value> Socket::Close(const Arguments& args) {
+  HandleScope scope;
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
   s->closing_ = 1;
@@ -440,41 +493,17 @@ Handle<Value> Socket::Close(const Arguments& args) {
 
 void Socket::Cycle() {
   HandleScope scope;
-  Handle<Value> cdata;
-  Handle<Value> edata;
 
-  if (clear_out_.Size() > 0) {
-    int size = clear_out_.Size();
-    Buffer* b = Buffer::New(size);
-
-    int read = clear_out_.Read(Buffer::Data(b->handle_), size);
-    assert(read == size);
-
-    cdata = b->handle_;
-  } else {
-    cdata = Null();
-  }
-
-  if (ring_wbio_->Size() > 0) {
-    int size = ring_wbio_->Size();
-    Buffer* b = Buffer::New(size);
-
-    int read = ring_wbio_->Read(Buffer::Data(b->handle_), size);
-    assert(read == size);
-
-    edata = b->handle_;
-  } else {
-    edata = Null();
-  }
-
-  Handle<Value> argv[2] = { cdata, edata };
-  MakeCallback(handle_, oncycle_sym, 2, argv);
+  MakeCallback(handle_, oncycle_sym, 0, NULL);
 }
 
 
 void Socket::EmitEvent(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
+
+  // Do not emit events after close
+  if (s->closed_) return;
 
   if (s->initializing_ == 2 && !s->initialized_) {
     s->initialized_ = true;
@@ -484,14 +513,13 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     MakeCallback(s->handle_, oninit_sym, 1, argv);
   }
 
-  s->Cycle();
-
   if (s->err_ == 0 && (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0)) {
+    s->Cycle();
     s->ctx_->Enqueue(s);
     return;
   }
 
-  if (s->closing_ == 2 && !s->closed_) {
+  if (s->closing_ == 2) {
     s->Cycle();
     s->closed_ = 1;
 
@@ -501,6 +529,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     // Enqueue socket for finalizing all OnEvent invokations
     s->ctx_->Enqueue(s);
     return;
+  } else {
+    s->Cycle();
   }
 }
 
@@ -683,6 +713,8 @@ void Socket::Init(Handle<Object> target) {
 
   NODE_SET_PROTOTYPE_METHOD(t, "clearIn", Socket::ClearIn);
   NODE_SET_PROTOTYPE_METHOD(t, "encIn", Socket::EncIn);
+  NODE_SET_PROTOTYPE_METHOD(t, "clearOut", Socket::ClearOut);
+  NODE_SET_PROTOTYPE_METHOD(t, "encOut", Socket::EncOut);
   NODE_SET_PROTOTYPE_METHOD(t, "close", Socket::Close);
 
   target->Set(String::NewSymbol("Socket"), t->GetFunction());
