@@ -26,10 +26,8 @@
 
 #include <libkern/OSAtomic.h>
 
-# define ATOMIC_ADD(arg, num) \
-      OSAtomicAdd64(num, &arg);
-# define ATOMIC_SUB(arg, num) \
-      OSAtomicAdd64(-num, &arg);
+# define ATOMIC_ADD(arg, num) OSAtomicAdd64(num, &arg);
+# define ATOMIC_SUB(arg, num) OSAtomicAdd64(-num, &arg);
 
 #else
 
