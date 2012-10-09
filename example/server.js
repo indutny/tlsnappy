@@ -69,5 +69,5 @@ if (needsCluster) {
 
 if (!server) return;
 server.listen(process.argv[3] || 44300, function() {
-  console.log('listening');
+  console.log('listening %d', process.pid);
 });

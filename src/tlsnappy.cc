@@ -129,9 +129,12 @@ int Context::Advertise(SSL *s,
 
 void Context::Enqueue(Socket* s) {
   // Allow calling only once after close
-  if (s->closed_ == 2) return;
-  if (s->closed_ == 1) {
-    s->closed_ = 2;
+  if (s->closed_) {
+    if (s->closed_ == 1) {
+      s->closed_ = 2;
+    } else {
+      return;
+    }
   }
 
   uv_mutex_lock(&queue_mtx_);
@@ -430,6 +433,7 @@ void OnAsyncClose(uv_handle_t* handle) {
 
 
 Socket::~Socket() {
+  assert(closed_ == 3);
   assert(ngx_queue_empty(&member_));
   ctx_->Unref();
 
@@ -448,6 +452,7 @@ Handle<Value> Socket::ClearIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
+  if (s->closed_) return Null();
   s->clear_in_.Write(Buffer::Data(args[0].As<Object>()),
                      Buffer::Length(args[0].As<Object>()));
 
@@ -464,6 +469,7 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
+  if (s->closed_) return Null();
   BIO_clear_retry_flags(s->rbio_);
   s->ring_rbio_->Write(Buffer::Data(args[0].As<Object>()),
                        Buffer::Length(args[0].As<Object>()));
@@ -586,6 +592,7 @@ void Socket::OnClose(uv_async_t* handle, int status) {
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
   // Final call - let GC collect socket
+  assert(s->closed_ == 3);
   s->Unref();
 }
 
