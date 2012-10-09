@@ -12,8 +12,10 @@ static long mem_ctrl(BIO*, int, long, void*);
 static int mem_new(BIO*);
 static int mem_free(BIO*);
 
+#define BIO_TYPE_NO_EX_DATA 0x0800
+
 static BIO_METHOD mem_method = {
-  BIO_TYPE_MEM,
+  BIO_TYPE_MEM | BIO_TYPE_NO_EX_DATA,
   "Super snappy buffer",
   mem_write,
   mem_read,
