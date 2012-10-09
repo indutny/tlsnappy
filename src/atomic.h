@@ -11,16 +11,25 @@
 # elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || \
        defined( __i686__ ) || defined( __x86_64__ )
 
-# define ATOMIC_ADD(arg, num)  asm volatile ("lock add %1, %2\n" : \
-                                             "=m" (arg) : "d" (num), "m" (arg))
-# define ATOMIC_SUB(arg, num)  asm volatile ("lock sub %1, %2\n" : \
-                                             "=m" (arg) : "d" (num), "m" (arg))
+# define ATOMIC_ADD(arg, num)  asm volatile ("lock add %0, %1\n" : \
+                                             : "r" (num), "m" (arg))
+# define ATOMIC_SUB(arg, num)  asm volatile ("lock sub %0, %1\n" : \
+                                             : "r" (num), "m" (arg))
 
 # else
 
 #  error Atomic opertations are not supported on your platform
 
 # endif
+
+#elif defined(__APPLE__)
+
+#include <libkern/OSAtomic.h>
+
+# define ATOMIC_ADD(arg, num) \
+      OSAtomicAdd64(num, &arg);
+# define ATOMIC_SUB(arg, num) \
+      OSAtomicAdd64(-num, &arg);
 
 #else
 

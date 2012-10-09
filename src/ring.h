@@ -21,7 +21,7 @@ class Ring {
 
   void Dump();
 
-  inline int Size() {
+  inline int64_t Size() {
     return total_;
   }
 
@@ -34,7 +34,7 @@ class Ring {
   RingBuffer* rhead_;
   RingBuffer* whead_;
 
-  int total_;
+  int64_t total_;
 };
 
 #endif // _SRC_RING_H_
