@@ -39,9 +39,11 @@ static void crypto_lock_cb(int mode, int n, const char* file, int line) {
   assert((mode & CRYPTO_READ) || (mode & CRYPTO_WRITE));
 
   // No locks for SSL_CTX, users should do it themselves
-  if (n == CRYPTO_LOCK_SSL_CTX) return;
   if (n == CRYPTO_LOCK_SSL) return;
+  if (n == CRYPTO_LOCK_SSL_CTX) return;
+  if (n == CRYPTO_LOCK_SSL_METHOD) return;
   if (n == CRYPTO_LOCK_SSL_SESSION) return;
+  if (n == CRYPTO_LOCK_SSL_SESS_CERT) return;
 
   if (mode & CRYPTO_LOCK) {
     if (mode & CRYPTO_READ)
