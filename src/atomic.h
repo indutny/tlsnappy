@@ -18,7 +18,7 @@
 
 # else
 
-#  error Atomic opertations are not supported on your platform
+#  error Atomic operations are not supported on your platform
 
 # endif
 
@@ -44,7 +44,7 @@
 
 #else
 
-# error Atomic opertations are not supported on your platform
+# error Atomic operations are not supported on your platform
 
 #endif
 
