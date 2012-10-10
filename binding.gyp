@@ -29,14 +29,14 @@
         }]
       ]
     },
-    {
-      "target_name": "ring-test",
-      "type": "executable",
-      "include_dirs": [ "src/" ],
-      "sources": [
-        "src/ring.cc",
-        "test/ring-test.cc"
-      ]
-    }
+#    {
+#      "target_name": "ring-test",
+#      "type": "executable",
+#      "include_dirs": [ "src/" ],
+#      "sources": [
+#        "src/ring.cc",
+#        "test/ring-test.cc"
+#      ]
+#    }
   ]
 }
