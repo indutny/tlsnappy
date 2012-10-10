@@ -18,7 +18,7 @@
 
 # else
 
-#  error Atomic opertations are not supported on your platform
+#  error Atomic operations are not supported on your platform
 
 # endif
 
@@ -42,9 +42,28 @@
 #  define ATOMIC_SUB(arg, num) OSAtomicAdd32(-num, ATOMIC_CAST_WORD(&arg));
 # endif
 
+#elif defined(_MSC_VER)
+
+# if defined(_M_X64)
+   extern "C" __int64 _InterlockedExchangeAdd64(__int64 volatile* addend, __int64 value);
+#  pragma intrinsic (_InterlockedExchangeAdd64)
+#  define ATOMIC_ADD(arg, num) ((void) _InterlockedExchangeAdd64(&(arg), (num)))
+#  define ATOMIC_SUB(arg, num) ((void) _InterlockedExchangeAdd64(&(arg), -(num)))
+
+# elif defined(_M_IX86)
+   extern "C" long _InterlockedExchangeAdd(long volatile* addend, long value);
+#  pragma intrinsic (_InterlockedExchangeAdd)
+#  define ATOMIC_ADD(arg, num) ((void) _InterlockedExchangeAdd(&(arg), (num)))
+#  define ATOMIC_SUB(arg, num) ((void) _InterlockedExchangeAdd(&(arg), -(num)))
+
+# else
+#  error Atomic operations are not supported on your platform
+
+# endif
+
 #else
 
-# error Atomic opertations are not supported on your platform
+# error Atomic operations are not supported on your platform
 
 #endif
 

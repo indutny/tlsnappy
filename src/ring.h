@@ -10,8 +10,8 @@ class RingBuffer {
   }
 
   RingBuffer* next;
-  volatile int roffset;
-  volatile int woffset;
+  volatile ssize_t roffset;
+  volatile ssize_t woffset;
   char data[10 * 1024];
 };
 
@@ -26,9 +26,9 @@ class Ring {
     return total_;
   }
 
-  void Write(const char* data, int size);
-  int Read(char* data, int size);
-  int Peek(char* data, int size);
+  void Write(const char* data, ssize_t size);
+  ssize_t Read(char* data, ssize_t size);
+  ssize_t Peek(char* data, ssize_t size);
 
  private:
   RingBuffer head_;
