@@ -36,7 +36,7 @@ void Ring::Dump() {
     flags[2] = current == &head_ ? 's' : ' ';
     flags[3] = 0;
 
-    fprintf(stdout, "# %d %d (%d %d) %s\n",
+    fprintf(stdout, "# %ld %ld (%d %d) %s\n",
             current->roffset,
             current->woffset,
             0,
