@@ -44,6 +44,7 @@ static void crypto_lock_cb(int mode, int n, const char* file, int line) {
   if (n == CRYPTO_LOCK_SSL_METHOD) return;
   if (n == CRYPTO_LOCK_SSL_SESSION) return;
   if (n == CRYPTO_LOCK_SSL_SESS_CERT) return;
+  if (n == CRYPTO_LOCK_ERR) return;
 
   if (mode & CRYPTO_LOCK) {
     if (mode & CRYPTO_READ)
