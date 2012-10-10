@@ -4,12 +4,12 @@
 #include "common.h"
 #include <sys/types.h>
 
-class RingBuffer {
+class RingPage {
  public:
-  RingBuffer() : next(this), roffset(0), woffset(0) {
+  RingPage() : next(this), roffset(0), woffset(0) {
   }
 
-  RingBuffer* next;
+  RingPage* next;
   volatile ssize_t roffset;
   volatile ssize_t woffset;
   char data[10 * 1024];
@@ -31,9 +31,9 @@ class Ring {
   ssize_t Peek(char* data, ssize_t size);
 
  private:
-  RingBuffer head_;
-  RingBuffer* rhead_;
-  RingBuffer* whead_;
+  RingPage head_;
+  RingPage* rhead_;
+  RingPage* whead_;
 
   volatile ssize_t total_;
 };

@@ -15,11 +15,11 @@ Ring::Ring() : total_(0) {
 Ring::~Ring() {
   rhead_ = NULL;
   whead_ = NULL;
-  RingBuffer* head = &head_;
+  RingPage* head = &head_;
 
   // Return all buffers into slab
   while (head->next != head) {
-    RingBuffer* next = head->next;
+    RingPage* next = head->next;
     head->next = next->next;
     delete next;
   }
@@ -28,7 +28,7 @@ Ring::~Ring() {
 
 void Ring::Dump() {
   fprintf(stdout, "-- ring %p dump start --\n", this);
-  RingBuffer* current = &head_;
+  RingPage* current = &head_;
   do {
     char flags[4];
     flags[0] = current == rhead_ ? 'r' : ' ';
@@ -52,7 +52,7 @@ void Ring::Write(const char* data, ssize_t size) {
   ssize_t left = size;
   ssize_t offset = 0;
   ssize_t woffset;
-  RingBuffer* b = whead_;
+  RingPage* b = whead_;
 
   while (left > 0) {
     ssize_t available = sizeof(b->data) - b->woffset;
@@ -68,7 +68,7 @@ void Ring::Write(const char* data, ssize_t size) {
     b->woffset = woffset;
 
     if (woffset == sizeof(b->data)) {
-      RingBuffer* next = b->next;
+      RingPage* next = b->next;
 
       if (rhead_ != next &&
           next->roffset == sizeof(next->data) &&
@@ -78,11 +78,11 @@ void Ring::Write(const char* data, ssize_t size) {
         next->woffset = 0;
       } else if (next->woffset != 0) {
         // Tail is full now - get a new one
-        next = new RingBuffer();
+        next = new RingPage();
         next->next = b->next;
 
         // Insert buffer into ring
-        *const_cast<volatile RingBuffer**>(&b->next) = next;
+        *const_cast<volatile RingPage**>(&b->next) = next;
       }
       b = next;
 
@@ -101,7 +101,7 @@ void Ring::Write(const char* data, ssize_t size) {
 
 
 ssize_t Ring::Read(char* data, ssize_t size) {
-  RingBuffer* b = rhead_;
+  RingPage* b = rhead_;
   ssize_t left = size;
   ssize_t offset = 0;
   ssize_t roffset;
@@ -141,7 +141,7 @@ ssize_t Ring::Read(char* data, ssize_t size) {
 ssize_t Ring::Peek(char* data, ssize_t size) {
   ssize_t left = size;
   ssize_t offset = 0;
-  RingBuffer* current = rhead_;
+  RingPage* current = rhead_;
 
   if (left > total_) left = total_;
 
