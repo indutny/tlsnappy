@@ -71,7 +71,8 @@ static int mem_read(BIO* bio, char* out, int len) {
     BIO_set_retry_read(bio);
     return bio->num;
   }
-  int bytes = r->Read(out, len);
+
+  int bytes = static_cast<int>(r->Read(out, len));
 
   return bytes;
 }
@@ -90,7 +91,7 @@ static int mem_write(BIO* bio, const char* data, int len) {
 
 
 static int mem_puts(BIO* bio, const char* str) {
-  return mem_write(bio, str, strlen(str) + 1);
+  return mem_write(bio, str, static_cast<int>(strlen(str)) + 1);
 }
 
 
@@ -98,7 +99,7 @@ static int mem_gets(BIO* bio, char* out, int size) {
   Ring* r = reinterpret_cast<Ring*>(bio->ptr);
   assert(r != NULL);
 
-  int len = r->Peek(out, size);
+  int len = static_cast<int>(r->Peek(out, size));
   if (len == 0) return 0;
 
   int i;

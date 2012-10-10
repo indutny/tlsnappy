@@ -48,15 +48,15 @@ void Ring::Dump() {
 }
 
 
-void Ring::Write(const char* data, int size) {
-  int left = size;
-  int offset = 0;
-  int woffset;
+void Ring::Write(const char* data, ssize_t size) {
+  ssize_t left = size;
+  ssize_t offset = 0;
+  ssize_t woffset;
   RingBuffer* b = whead_;
 
   while (left > 0) {
-    int available = sizeof(b->data) - b->woffset;
-    int bytes = available > left ? left : available;
+    ssize_t available = sizeof(b->data) - b->woffset;
+    ssize_t bytes = available > left ? left : available;
 
     assert(static_cast<size_t>(b->woffset + bytes) <= sizeof(b->data));
     memcpy(b->data + b->woffset, data + offset, bytes);
@@ -100,17 +100,17 @@ void Ring::Write(const char* data, int size) {
 }
 
 
-int Ring::Read(char* data, int size) {
+ssize_t Ring::Read(char* data, ssize_t size) {
   RingBuffer* b = rhead_;
-  int left = size;
-  int offset = 0;
-  int roffset;
+  ssize_t left = size;
+  ssize_t offset = 0;
+  ssize_t roffset;
 
   while (total_ > 0 && left > 0) {
     PaUtil_ReadMemoryBarrier();
 
-    int avail = b->woffset - b->roffset;
-    int bytes = avail > left ? left : avail;
+    ssize_t avail = b->woffset - b->roffset;
+    ssize_t bytes = avail > left ? left : avail;
 
     // Copy only if there's place to save data
     if (data != NULL && bytes != 0) {
@@ -138,17 +138,17 @@ int Ring::Read(char* data, int size) {
 }
 
 
-int Ring::Peek(char* data, int size) {
-  int left = size;
-  int offset = 0;
+ssize_t Ring::Peek(char* data, ssize_t size) {
+  ssize_t left = size;
+  ssize_t offset = 0;
   RingBuffer* current = rhead_;
 
   if (left > total_) left = total_;
 
   while (left > 0) {
-    int avail = current->woffset - current->roffset;
+    ssize_t avail = current->woffset - current->roffset;
     if (avail == 0) break;
-    int bytes = avail > left ? left : avail;
+    ssize_t bytes = avail > left ? left : avail;
 
     assert(current->roffset + bytes <= current->woffset);
     memcpy(data + offset, current->data + current->roffset, bytes);
