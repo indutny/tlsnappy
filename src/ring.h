@@ -2,6 +2,7 @@
 #define _SRC_RING_H_
 
 #include "common.h"
+#include <sys/types.h>
 
 class RingBuffer {
  public:
@@ -21,7 +22,7 @@ class Ring {
 
   void Dump();
 
-  inline int64_t Size() {
+  inline ssize_t Size() {
     return total_;
   }
 
@@ -34,7 +35,7 @@ class Ring {
   RingBuffer* rhead_;
   RingBuffer* whead_;
 
-  int64_t total_;
+  volatile ssize_t total_;
 };
 
 #endif // _SRC_RING_H_
