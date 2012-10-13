@@ -5,7 +5,7 @@
 #include "node_buffer.h"
 #include "node_object_wrap.h"
 #include "ngx-queue.h"
-#include "ring.h"
+#include "lring.h"
 #include "openssl/ssl.h"
 #include "openssl/bio.h"
 #include "openssl/err.h"
@@ -93,10 +93,10 @@ class Socket : public ObjectWrap {
   // When SSL error happens this is filled with error code
   int err_;
 
-  Ring enc_in_;
-  Ring enc_out_;
-  Ring clear_in_;
-  Ring clear_out_;
+  lring_t enc_in_;
+  lring_t enc_out_;
+  lring_t clear_in_;
+  lring_t clear_out_;
   uv_async_t* event_cb_;
   uv_async_t* close_cb_;
 
@@ -107,8 +107,8 @@ class Socket : public ObjectWrap {
   void Shutdown();
 
   Context* ctx_;
-  Ring* ring_rbio_;
-  Ring* ring_wbio_;
+  lring_t* ring_rbio_;
+  lring_t* ring_wbio_;
   BIO* rbio_;
   BIO* wbio_;
   SSL* ssl_;

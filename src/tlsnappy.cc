@@ -1,5 +1,6 @@
 #include "tlsnappy.h"
 #include "bio.h"
+#include "lring.h"
 #include "common.h"
 #include "assert.h"
 
@@ -414,8 +415,14 @@ Socket::Socket(Context* ctx) : queued_(0),
   wbio_ = BIO_new(BIO_snappy());
   assert(rbio_ != NULL);
   assert(wbio_ != NULL);
-  ring_rbio_ = reinterpret_cast<Ring*>(rbio_->ptr);
-  ring_wbio_ = reinterpret_cast<Ring*>(wbio_->ptr);
+  ring_rbio_ = reinterpret_cast<lring_t*>(rbio_->ptr);
+  ring_wbio_ = reinterpret_cast<lring_t*>(wbio_->ptr);
+
+  // Init rings
+  lring_init(&clear_in_);
+  lring_init(&enc_in_);
+  lring_init(&clear_out_);
+  lring_init(&enc_out_);
 
   event_cb_ = new uv_async_t();
   event_cb_->data = this;
@@ -445,6 +452,12 @@ Socket::~Socket() {
 
   delete[] npn_;
   npn_ = NULL;
+
+  // Destroy rings
+  lring_destroy(&clear_in_);
+  lring_destroy(&enc_in_);
+  lring_destroy(&clear_out_);
+  lring_destroy(&enc_out_);
 }
 
 
@@ -456,8 +469,9 @@ Handle<Value> Socket::ClearIn(const Arguments& args) {
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
   if (s->closed_) return Null();
-  s->clear_in_.Write(Buffer::Data(args[0].As<Object>()),
-                     Buffer::Length(args[0].As<Object>()));
+  lring_write(&s->clear_in_,
+              Buffer::Data(args[0].As<Object>()),
+              Buffer::Length(args[0].As<Object>()));
 
   s->ctx_->Enqueue(s);
 
@@ -474,8 +488,9 @@ Handle<Value> Socket::EncIn(const Arguments& args) {
 
   if (s->closed_) return Null();
   BIO_clear_retry_flags(s->rbio_);
-  s->ring_rbio_->Write(Buffer::Data(args[0].As<Object>()),
-                       Buffer::Length(args[0].As<Object>()));
+  lring_write(s->ring_rbio_,
+              Buffer::Data(args[0].As<Object>()),
+              Buffer::Length(args[0].As<Object>()));
 
   s->ctx_->Enqueue(s);
 
@@ -503,7 +518,7 @@ Handle<Value> Socket::ClearOut(const Arguments& args) {
 
   assert(size >= off + len);
 
-  int res = s->clear_out_.Read(data + off, len);
+  int res = lring_read(&s->clear_out_, data + off, len);
 
   return scope.Close(Number::New(res));
 }
@@ -529,7 +544,7 @@ Handle<Value> Socket::EncOut(const Arguments& args) {
 
   assert(size >= off + len);
 
-  int res = s->ring_wbio_->Read(data + off, len);
+  int res = lring_read(s->ring_wbio_, data + off, len);
 
   return scope.Close(Number::New(res));
 }
@@ -568,7 +583,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     MakeCallback(s->handle_, oninit_sym, 1, argv);
   }
 
-  if (s->err_ == 0 && (s->clear_in_.Size() != 0 || s->enc_in_.Size() != 0)) {
+  if (s->err_ == 0 &&
+      (lring_size(&s->clear_in_) != 0 || lring_size(&s->enc_in_) != 0)) {
     s->Cycle();
     s->ctx_->Enqueue(s);
     return;
@@ -604,8 +620,8 @@ void Socket::HandleError(int err) {
   err_ = err;
 
   // Flush all incoming data
-  clear_in_.Read(NULL, clear_in_.Size());
-  enc_in_.Read(NULL, enc_in_.Size());
+  lring_read(&clear_in_, NULL, lring_size(&clear_in_));
+  lring_read(&enc_in_, NULL, lring_size(&enc_in_));
 
   // Pretend we're closing
   Shutdown();
@@ -640,7 +656,7 @@ void Socket::Shutdown() {
   if (closing_ == 2) return;
   int bytes = 0;
   int r;
-  bytes = clear_in_.Size();
+  bytes = lring_size(&clear_in_);
 
   // Do not send shutdown if data wasn't transferred to the client
   if (bytes != 0) return;
@@ -669,13 +685,13 @@ void Socket::OnEvent() {
 
   do {
     // Write clear data
-    bytes = clear_in_.Peek(data, sizeof(data));
+    bytes = lring_peek(&clear_in_, data, sizeof(data));
 
     if (bytes > 0) {
       r = SSL_write(ssl_, data, bytes);
       if (r > 0) {
         // Flush read data
-        clear_in_.Read(NULL, r);
+        lring_read(&clear_in_, NULL, r);
 
         // Loop until all data will be written
         if (r < bytes) continue;
@@ -697,7 +713,7 @@ void Socket::OnEvent() {
         }
       }
     }
-  } while (clear_in_.Size() > 0);
+  } while (lring_size(&clear_in_) > 0);
 
   TryGetNPN();
 
@@ -707,7 +723,7 @@ void Socket::OnEvent() {
     if (bytes > 0) {
       TryGetNPN();
 
-      clear_out_.Write(data, bytes);
+      lring_write(&clear_out_, data, bytes);
 
       uv_async_send(event_cb_);
     } else if (closing_ != 2) {

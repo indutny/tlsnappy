@@ -5,10 +5,11 @@
   "targets": [
     {
       "target_name": "tlsnappy",
+      "dependencies": [ "deps/lring/lring.gyp:lring" ],
+      "include_dirs": [ "deps/lring/include" ],
       "sources": [
         "src/tlsnappy.cc",
-        "src/bio.cc",
-        "src/ring.cc",
+        "src/bio.c"
       ],
       "conditions": [
         ["node_shared_openssl=='false'", {
@@ -28,15 +29,6 @@
           ]
         }]
       ]
-    },
-#    {
-#      "target_name": "ring-test",
-#      "type": "executable",
-#      "include_dirs": [ "src/" ],
-#      "sources": [
-#        "src/ring.cc",
-#        "test/ring-test.cc"
-#      ]
-#    }
+    }
   ]
 }

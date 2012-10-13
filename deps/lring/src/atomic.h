@@ -27,16 +27,12 @@
 #include <libkern/OSAtomic.h>
 
 # if defined( __x86_64__ ) || defined ( __ppc64__)
-#  define ATOMIC_CAST_WORD(arg) \
-    const_cast<volatile int64_t*>( \
-        reinterpret_cast<int64_t*>(const_cast<ssize_t*>(arg)))
+#  define ATOMIC_CAST_WORD(arg) ((volatile int64_t*)(arg))
 
 #  define ATOMIC_ADD(arg, num) OSAtomicAdd64(num, ATOMIC_CAST_WORD(&arg));
 #  define ATOMIC_SUB(arg, num) OSAtomicAdd64(-num, ATOMIC_CAST_WORD(&arg));
 # else
-#  define ATOMIC_CAST_WORD(arg) \
-    const_cast<volatile int32_t*>( \
-        reinterpret_cast<int32_t*>(const_cast<ssize_t*>(arg)))
+#  define ATOMIC_CAST_WORD(arg) ((volatile int32_t*)(arg))
 
 #  define ATOMIC_ADD(arg, num) OSAtomicAdd32(num, ATOMIC_CAST_WORD(&arg));
 #  define ATOMIC_SUB(arg, num) OSAtomicAdd32(-num, ATOMIC_CAST_WORD(&arg));
@@ -67,4 +63,4 @@
 
 #endif
 
-#endif // _SRC_ATOMIC_H_
+#endif /* _SRC_ATOMIC_H_ */
