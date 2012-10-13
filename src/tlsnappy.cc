@@ -63,11 +63,11 @@ static void crypto_lock_cb(int mode, int n, const char* file, int line) {
 
 
 int crypto_atomic_add(int* num,
-                      int mount,
+                      int amount,
                       int type,
                       const char *file,
                       int line) {
-  return ATOMIC_ADD(num, mount);
+  return ATOMIC_ADD(num, amount);
 }
 
 
