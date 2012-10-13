@@ -6,7 +6,10 @@
     {
       "target_name": "tlsnappy",
       "dependencies": [ "deps/lring/lring.gyp:lring" ],
-      "include_dirs": [ "deps/lring/include" ],
+      "include_dirs": [
+        "deps/lring/include",
+        "deps/lring/src"
+      ],
       "sources": [
         "src/tlsnappy.cc",
         "src/bio.c"

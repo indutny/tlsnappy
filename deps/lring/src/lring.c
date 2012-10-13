@@ -100,7 +100,7 @@ void lring_write(lring_t* ring, const char* data, ssize_t size) {
     }
 
     PaUtil_WriteMemoryBarrier();
-    ATOMIC_ADD(ring->total, bytes);
+    ATOMIC_ADD(&ring->total, bytes);
   }
   assert(size == offset);
 }
@@ -135,7 +135,7 @@ ssize_t lring_read(lring_t* ring, char* data, ssize_t size) {
 
     roffset = p->roffset + bytes;
     p->roffset = roffset;
-    ATOMIC_SUB(ring->total, bytes);
+    ATOMIC_SUB(&ring->total, bytes);
 
     assert(roffset >= 0);
 

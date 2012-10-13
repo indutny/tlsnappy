@@ -1,6 +1,7 @@
 #include "tlsnappy.h"
 #include "bio.h"
 #include "lring.h"
+#include "atomic.h"
 #include "common.h"
 #include "assert.h"
 
@@ -58,6 +59,15 @@ static void crypto_lock_cb(int mode, int n, const char* file, int line) {
     else
       uv_rwlock_wrunlock(locks + n);
   }
+}
+
+
+int crypto_atomic_add(int* num,
+                      int mount,
+                      int type,
+                      const char *file,
+                      int line) {
+  return ATOMIC_ADD(num, mount);
 }
 
 
@@ -800,6 +810,7 @@ void Init(Handle<Object> target) {
   crypto_lock_init();
   CRYPTO_set_locking_callback(crypto_lock_cb);
   CRYPTO_set_id_callback(crypto_id_cb);
+  CRYPTO_set_add_lock_callback(crypto_atomic_add);
 
   oncycle_sym = Persistent<String>::New(String::NewSymbol("oncycle"));
   onclose_sym = Persistent<String>::New(String::NewSymbol("onclose"));
