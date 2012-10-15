@@ -3,8 +3,6 @@
 #include <assert.h>
 #include <string.h>
 
-namespace tlsnappy {
-
 static int mem_write(BIO*, const char*, int);
 static int mem_read(BIO*, char*, int);
 static int mem_puts(BIO*, const char*);
@@ -35,9 +33,13 @@ BIO_METHOD* BIO_snappy() {
 
 
 static int mem_new(BIO* bio) {
-  lring_t* ring = new lring_t();
+  lring_t* ring;
 
-  bio->ptr = reinterpret_cast<char*>(ring);
+  ring = (lring_t*) malloc(sizeof(lring_t));
+  if (ring == NULL) abort();
+  lring_init(ring);
+
+  bio->ptr = (char*) ring;
 
   // XXX Why am I doing it?!
   bio->shutdown = 1;
@@ -53,7 +55,7 @@ static int mem_free(BIO* bio) {
 
   if (bio->shutdown) {
     if (bio->init && bio->ptr != NULL) {
-      delete reinterpret_cast<lring_t*>(bio->ptr);
+      free(bio->ptr);
       bio->ptr = NULL;
     }
   }
@@ -62,30 +64,35 @@ static int mem_free(BIO* bio) {
 }
 
 
-inline lring_t* mem_ring(BIO* bio) {
-  return reinterpret_cast<lring_t*>(bio->ptr);
+static inline lring_t* mem_ring(BIO* bio) {
+  return (lring_t*) bio->ptr;
 }
 
 
 static int mem_read(BIO* bio, char* out, int len) {
+  lring_t* r;
+  int bytes;
   BIO_clear_retry_flags(bio);
 
-  lring_t* r = mem_ring(bio);
+  r = mem_ring(bio);
   assert(r != NULL);
 
-  if (lring_size(r) == 0) {
-    BIO_set_retry_read(bio);
-    return bio->num;
+  bytes = (int) lring_read(r, out, len);
+  if (bytes == 0) {
+    bytes = bio->num;
+    if (bytes != 0) {
+      BIO_set_retry_read(bio);
+    }
   }
-
-  int bytes = static_cast<int>(lring_read(r, out, len));
 
   return bytes;
 }
 
 
 static int mem_write(BIO* bio, const char* data, int len) {
-  lring_t* r = mem_ring(bio);
+  lring_t* r;
+
+  r = mem_ring(bio);
 
   BIO_clear_retry_flags(bio);
 
@@ -97,15 +104,17 @@ static int mem_write(BIO* bio, const char* data, int len) {
 
 
 static int mem_puts(BIO* bio, const char* str) {
-  return mem_write(bio, str, static_cast<int>(strlen(str)) + 1);
+  return mem_write(bio, str, (int) strlen(str) + 1);
 }
 
 
 static int mem_gets(BIO* bio, char* out, int size) {
-  lring_t* r = mem_ring(bio);
+  lring_t* r;
+
+  r = mem_ring(bio);
   assert(r != NULL);
 
-  int len = static_cast<int>(lring_peek(r, out, size));
+  int len = (int) lring_peek(r, out, size);
   if (len == 0) return 0;
 
   int i;
@@ -129,10 +138,13 @@ static int mem_gets(BIO* bio, char* out, int size) {
 
 
 static long mem_ctrl(BIO* bio, int cmd, long num, void* ptr) {
-  long ret = 1;
+  lring_t* r;
+  long ret;
 
-  lring_t* r = mem_ring(bio);
+  r = mem_ring(bio);
   assert(r != NULL);
+
+  ret = 1;
 
   switch (cmd) {
    case BIO_CTRL_RESET:
@@ -142,33 +154,33 @@ static long mem_ctrl(BIO* bio, int cmd, long num, void* ptr) {
     ret = lring_size(r) == 0;
     break;
    case BIO_C_SET_BUF_MEM_EOF_RETURN:
-    bio->num = static_cast<int>(num);
+    bio->num = (int) num;
     break;
    case BIO_CTRL_INFO:
-    ret = static_cast<long>(lring_size(r));
+    ret = (long) lring_size(r);
     if (ptr != NULL)
-      *reinterpret_cast<void**>(ptr) = NULL;
+      *((void**) ptr) = NULL;
     break;
    case BIO_C_SET_BUF_MEM:
     mem_free(bio);
-    bio->shutdown= static_cast<int>(num);
+    bio->shutdown = (int) num;
     bio->ptr = ptr;
     break;
    case BIO_C_GET_BUF_MEM_PTR:
     if (ptr != NULL)
-      *reinterpret_cast<void**>(ptr) = r;
+      *((void**) ptr) = r;
     break;
   case BIO_CTRL_GET_CLOSE:
-    ret = static_cast<long>(bio->shutdown);
+    ret = (long) bio->shutdown;
     break;
   case BIO_CTRL_SET_CLOSE:
-    bio->shutdown = static_cast<int>(num);
+    bio->shutdown = (int) num;
     break;
   case BIO_CTRL_WPENDING:
     ret = 0L;
     break;
   case BIO_CTRL_PENDING:
-    ret = static_cast<long>(lring_size(r));
+    ret = (long) lring_size(r);
     break;
   case BIO_CTRL_DUP:
   case BIO_CTRL_FLUSH:
@@ -182,5 +194,3 @@ static long mem_ctrl(BIO* bio, int cmd, long num, void* ptr) {
   }
   return ret;
 }
-
-} // namespace tlsnappy

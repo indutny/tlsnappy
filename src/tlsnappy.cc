@@ -436,7 +436,6 @@ Socket::Socket(Context* ctx) : queued_(0),
 
   event_cb_ = new uv_async_t();
   event_cb_->data = this;
-
   if (uv_async_init(uv_default_loop(), event_cb_, EmitEvent)) abort();
 
   close_cb_ = new uv_async_t();
@@ -582,6 +581,9 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
 
+  // Sanity check
+  assert(s->event_cb_ == handle);
+
   // Do not emit events after close
   if (s->closed_) return;
 
@@ -619,6 +621,9 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
 void Socket::OnClose(uv_async_t* handle, int status) {
   HandleScope scope;
   Socket* s = reinterpret_cast<Socket*>(handle->data);
+
+  // Sanity check
+  assert(s->close_cb_ == handle);
 
   // Final call - let GC collect socket
   assert(s->closed_ == 3);
