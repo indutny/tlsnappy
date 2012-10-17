@@ -5,14 +5,15 @@
   "targets": [
     {
       "target_name": "tlsnappy",
-      "dependencies": [ "deps/lring/lring.gyp:lring" ],
+#      "dependencies": [ "deps/lring/lring.gyp:lring" ],
       "include_dirs": [
         "deps/lring/include",
         "deps/lring/src"
       ],
       "sources": [
         "src/tlsnappy.cc",
-        "src/bio.c"
+        "src/bio.c",
+        "deps/lring/src/lring.c"
       ],
       "conditions": [
         ["node_shared_openssl=='false'", {
