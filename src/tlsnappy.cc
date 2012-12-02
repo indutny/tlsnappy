@@ -413,7 +413,7 @@ Socket::Socket(Context* ctx) : queued_(0),
                                initializing_(0),
                                closed_(0),
                                initialized_(false),
-                               shutdown_tries_(0),
+                               shutdown_(false),
                                err_(0),
                                ctx_(ctx),
                                ssl_(NULL),
@@ -670,27 +670,17 @@ void Socket::TryGetNPN() {
 void Socket::Shutdown() {
   if (closing_ == 2) return;
   int bytes = 0;
-  int r;
   bytes = lring_size(&clear_in_);
 
   // Do not send shutdown if data wasn't transferred to the client
   if (bytes != 0) return;
-  r = SSL_shutdown(ssl_);
 
-  // Try only four times (copy pasted from Apache Httpd)
-  if (r != 1) {
-    int err = SSL_get_error(ssl_, r);
-    if ((r == 0 ||
-         err == SSL_ERROR_ZERO_RETURN ||
-         err == SSL_ERROR_WANT_READ ||
-         err == SSL_ERROR_WANT_WRITE) &&
-        ++shutdown_tries_ < 4) {
-      return;
-    } else if (queued_ == 0) {
-      closing_ = 2;
+  if (!shutdown_) {
+    shutdown_ = true;
+    for (int i = 0; i < 4; i++) {
+      SSL_shutdown(ssl_);
     }
   } else if (queued_ == 0) {
-    // Success - close socket
     closing_ = 2;
   }
 }

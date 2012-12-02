@@ -88,7 +88,7 @@ class Socket : public ObjectWrap {
   volatile int initializing_;
   volatile int closed_;
   bool initialized_;
-  int shutdown_tries_;
+  bool shutdown_;
 
   // When SSL error happens this is filled with error code
   int err_;
