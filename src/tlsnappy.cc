@@ -678,10 +678,21 @@ void Socket::Shutdown() {
   r = SSL_shutdown(ssl_);
 
   // Try only four times (copy pasted from Apache Httpd)
-  if (r == 0 && ++shutdown_tries_ < 4) return;
-
-  // Wait for all iterations to execute before this
-  if (r == -1 || queued_ == 0) closing_ = 2;
+  if (r != 1) {
+    int err = SSL_get_error(ssl_, r);
+    if ((r == 0 ||
+         err == SSL_ERROR_ZERO_RETURN ||
+         err == SSL_ERROR_WANT_READ ||
+         err == SSL_ERROR_WANT_WRITE) &&
+        ++shutdown_tries_ < 4) {
+      return;
+    } else if (queued_ == 0) {
+      closing_ = 2;
+    }
+  } else if (queued_ == 0) {
+    // Success - close socket
+    closing_ = 2;
+  }
 }
 
 
