@@ -75,6 +75,7 @@ class Socket : public ObjectWrap {
   static Handle<Value> ClearOut(const Arguments& args);
   static Handle<Value> EncOut(const Arguments& args);
   static Handle<Value> Close(const Arguments& args);
+  static Handle<Value> ForceClose(const Arguments& args);
 
   inline void Cycle();
   static void EmitEvent(uv_async_t* handle, int status);
@@ -88,7 +89,7 @@ class Socket : public ObjectWrap {
   volatile int initializing_;
   volatile int closed_;
   bool initialized_;
-  bool shutdown_;
+  int shutdown_;
 
   // When SSL error happens this is filled with error code
   int err_;

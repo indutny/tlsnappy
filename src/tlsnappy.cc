@@ -413,7 +413,7 @@ Socket::Socket(Context* ctx) : queued_(0),
                                initializing_(0),
                                closed_(0),
                                initialized_(false),
-                               shutdown_(false),
+                               shutdown_(0),
                                err_(0),
                                ctx_(ctx),
                                ssl_(NULL),
@@ -570,6 +570,17 @@ Handle<Value> Socket::Close(const Arguments& args) {
 }
 
 
+Handle<Value> Socket::ForceClose(const Arguments& args) {
+  HandleScope scope;
+  Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
+
+  s->closing_ = 2;
+  s->ctx_->Enqueue(s);
+
+  return Null();
+}
+
+
 void Socket::Cycle() {
   HandleScope scope;
 
@@ -596,7 +607,8 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
   }
 
   if (s->err_ == 0 &&
-      (lring_size(&s->clear_in_) != 0 || lring_size(&s->enc_in_) != 0)) {
+      ((lring_size(&s->clear_in_) != 0 && !s->shutdown_) ||
+       lring_size(&s->enc_in_) != 0)) {
     s->Cycle();
     s->ctx_->Enqueue(s);
     return;
@@ -672,15 +684,27 @@ void Socket::Shutdown() {
   int bytes = 0;
   bytes = lring_size(&clear_in_);
 
-  // Do not send shutdown if data wasn't transferred to the client
+  // Write all data first
   if (bytes != 0) return;
 
-  if (!shutdown_) {
-    shutdown_ = true;
-    for (int i = 0; i < 4; i++) {
-      SSL_shutdown(ssl_);
+  switch (shutdown_) {
+   case 0:
+    shutdown_ = 1;
+    if (SSL_shutdown(ssl_) == 1) {
+      shutdown_ = 2;
+      break;
     }
-  } else if (queued_ == 0) {
+   case 1:
+    if (SSL_shutdown(ssl_) == 1) {
+      shutdown_ = 2;
+      break;
+    }
+   case 2:
+    // Already shutdown - do nothing
+    break;
+  }
+
+  if (shutdown_ == 2 && queued_ == 0) {
     closing_ = 2;
   }
 }
@@ -700,6 +724,8 @@ void Socket::OnEvent() {
   }
 
   do {
+    if (shutdown_) break;
+
     // Write clear data
     bytes = lring_peek(&clear_in_, data, sizeof(data));
 
@@ -734,6 +760,8 @@ void Socket::OnEvent() {
   TryGetNPN();
 
   do {
+    if (shutdown_) break;
+
     // Read clear data
     bytes = SSL_read(ssl_, data, sizeof(data));
     if (bytes > 0) {
@@ -804,6 +832,7 @@ void Socket::Init(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t, "clearOut", Socket::ClearOut);
   NODE_SET_PROTOTYPE_METHOD(t, "encOut", Socket::EncOut);
   NODE_SET_PROTOTYPE_METHOD(t, "close", Socket::Close);
+  NODE_SET_PROTOTYPE_METHOD(t, "forceClose", Socket::ForceClose);
 
   target->Set(String::NewSymbol("Socket"), t->GetFunction());
 }
