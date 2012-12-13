@@ -1,6 +1,6 @@
 # TLSnappy
 
-TLS module, but faster! ( [benchmarks][1] )
+TLS module, but faster! ( [benchmarks][1] and [blog post][2] )
 
 **Stability: -1**
 
@@ -61,3 +61,4 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 [1]: https://github.com/indutny/tlsnappy/blob/master/benchmark/index.md
+[2]: http://blog.indutny.com/0.benchmarking-tls
