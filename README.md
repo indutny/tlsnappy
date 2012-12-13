@@ -12,13 +12,21 @@ of you. In case of anything - open issue!
 ```javascript
 var tlsnappy = require('tlsnappy');
 
+// SSL server options
+var options = {
+  key: Blob,
+  cert: Blob,
+  shutdownTimeout: 5000, // in ms, (default: 5000)
+  handshakeTimeout: 120 * 1000 // in ms, (default: 120 * 1000)
+};
+
 // HTTPS Server
-tlsnappy.createServer(function(req, res) {
+tlsnappy.createServer(options, function(req, res) {
   res.end('hello world');
 }).listen(443);
 
 // TLS Server (i.e. raw SSL)
-tlsnappy.createTLSServer(function(connection) {
+tlsnappy.createTLSServer(options, function(connection) {
   connection.write('hello world');
   connection.end();
 });
