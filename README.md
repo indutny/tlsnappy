@@ -17,7 +17,8 @@ var options = {
   key: Blob,
   cert: Blob,
   shutdownTimeout: 5000, // in ms, (default: 5000)
-  handshakeTimeout: 120 * 1000 // in ms, (default: 120 * 1000)
+  handshakeTimeout: 120 * 1000, // in ms, (default: 120 * 1000)
+  NPNProtocols: [ 'http/1.1', 'http/1.0' ] // optional, needed for spdy
 };
 
 // HTTPS Server
