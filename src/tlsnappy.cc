@@ -15,15 +15,6 @@ static Persistent<String> onclose_sym;
 static Persistent<String> oninit_sym;
 static uv_rwlock_t* locks;
 
-static unsigned long crypto_id_cb(void) {
-#ifdef _WIN32
-  return (unsigned long) GetCurrentThreadId();
-#else /* !_WIN32 */
-  return (unsigned long) pthread_self();
-#endif /* !_WIN32 */
-}
-
-
 static void crypto_lock_init(void) {
   int i, n;
 
@@ -844,7 +835,6 @@ void Init(Handle<Object> target) {
   // Shamelessly copy-pasted from node.js
   crypto_lock_init();
   CRYPTO_set_locking_callback(crypto_lock_cb);
-  CRYPTO_set_id_callback(crypto_id_cb);
   CRYPTO_set_add_lock_callback(crypto_atomic_add);
 
   oncycle_sym = Persistent<String>::New(String::NewSymbol("oncycle"));
