@@ -573,8 +573,6 @@ Handle<Value> Socket::ForceClose(const Arguments& args) {
 
 
 void Socket::Cycle() {
-  HandleScope scope;
-
   MakeCallback(handle_, oncycle_sym, 0, NULL);
 }
 
@@ -595,18 +593,19 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     Handle<Value> argv[1] = { String::New(const_cast<char*>(s->npn_),
                                           s->npn_len_) };
     MakeCallback(s->handle_, oninit_sym, 1, argv);
+  } else {
+    // NOTE: init() should call cycle()
+    s->Cycle();
   }
 
   if (s->err_ == 0 &&
       ((lring_size(&s->clear_in_) != 0 && !s->shutdown_) ||
        lring_size(&s->enc_in_) != 0)) {
-    s->Cycle();
     s->ctx_->Enqueue(s);
     return;
   }
 
   if (s->closing_ == 2) {
-    s->Cycle();
     s->closed_ = 1;
 
     // And finally emit close event
@@ -615,8 +614,6 @@ void Socket::EmitEvent(uv_async_t* handle, int status) {
     // Enqueue socket for finalizing all OnEvent invokations
     s->ctx_->Enqueue(s);
     return;
-  } else {
-    s->Cycle();
   }
 }
 
