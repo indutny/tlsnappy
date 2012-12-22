@@ -480,17 +480,21 @@ Handle<Value> Socket::ClearIn(const Arguments& args) {
 
 
 Handle<Value> Socket::EncIn(const Arguments& args) {
-  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
+  if (args.Length() < 3 || !Buffer::HasInstance(args[0]) ||
+      !args[1]->IsNumber() || !args[2]->IsNumber()) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
-
   if (s->closed_) return Null();
+
+  size_t off = args[1]->Int32Value();
+  size_t len = args[2]->Int32Value();
+
   BIO_clear_retry_flags(s->rbio_);
   lring_write(s->ring_rbio_,
-              Buffer::Data(args[0].As<Object>()),
-              Buffer::Length(args[0].As<Object>()));
+              Buffer::Data(args[0].As<Object>()) + off,
+              len - off);
 
   s->ctx_->Enqueue(s);
 
