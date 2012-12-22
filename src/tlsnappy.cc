@@ -423,7 +423,6 @@ Socket::Socket(Context* ctx) : queued_(0),
   lring_init(&clear_in_);
   lring_init(&enc_in_);
   lring_init(&clear_out_);
-  lring_init(&enc_out_);
 
   event_cb_ = new uv_async_t();
   event_cb_->data = this;
@@ -457,7 +456,6 @@ Socket::~Socket() {
   lring_destroy(&clear_in_);
   lring_destroy(&enc_in_);
   lring_destroy(&clear_out_);
-  lring_destroy(&enc_out_);
 }
 
 

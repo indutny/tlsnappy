@@ -95,7 +95,6 @@ class Socket : public ObjectWrap {
   int err_;
 
   lring_t enc_in_;
-  lring_t enc_out_;
   lring_t clear_in_;
   lring_t clear_out_;
   uv_async_t* event_cb_;
