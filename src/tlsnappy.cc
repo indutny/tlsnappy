@@ -81,7 +81,23 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   SSL_CTX_set_options(ctx_, SSL_OP_CIPHER_SERVER_PREFERENCE);
   SSL_CTX_set_options(ctx_, SSL_OP_NO_COMPRESSION);
   SSL_CTX_set_options(ctx_, SSL_OP_SINGLE_DH_USE);
+
+  // Save RAM by releasing read and write buffers when they're empty. (SSL3 and
+  // TLS only.)  "Released" buffers are put onto a free-list in the context
+  // or just freed (depending on the context's setting for freelist_max_len).
   SSL_CTX_set_mode(ctx_, SSL_MODE_RELEASE_BUFFERS);
+  // Allow SSL_write(..., n) to return r with 0 < r < n (i.e. report success
+  // when just a single record has been written):
+  SSL_CTX_set_mode(ctx_, SSL_MODE_ENABLE_PARTIAL_WRITE);
+  // When set, clients may send application data before receipt of CCS
+  // and Finished.  This mode enables full-handshakes to 'complete' in
+  // one RTT.
+  SSL_CTX_set_mode(ctx_, SSL_MODE_HANDSHAKE_CUTTHROUGH);
+
+  // Do not verify clients
+  SSL_CTX_set_verify(ctx_, SSL_VERIFY_NONE, NULL);
+
+  // Turn off sessions
   SSL_CTX_set_session_cache_mode(ctx_, SSL_SESS_CACHE_OFF);
 
   // NPN
