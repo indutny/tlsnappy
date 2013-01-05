@@ -86,6 +86,9 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   // TLS only.)  "Released" buffers are put onto a free-list in the context
   // or just freed (depending on the context's setting for freelist_max_len).
   SSL_CTX_set_mode(ctx_, SSL_MODE_RELEASE_BUFFERS);
+  // Use small read and write buffers: (a) lazy allocate read buffers for
+  // large incoming records, and (b) limit the size of outgoing records.
+  SSL_CTX_set_mode(ctx_, SSL_MODE_SMALL_BUFFERS);
   // Allow SSL_write(..., n) to return r with 0 < r < n (i.e. report success
   // when just a single record has been written):
   SSL_CTX_set_mode(ctx_, SSL_MODE_ENABLE_PARTIAL_WRITE);
@@ -93,6 +96,9 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   // and Finished.  This mode enables full-handshakes to 'complete' in
   // one RTT.
   SSL_CTX_set_mode(ctx_, SSL_MODE_HANDSHAKE_CUTTHROUGH);
+
+  // Respect MTU
+  SSL_CTX_set_max_send_fragment(ctx_, 1300);
 
   // Do not verify clients
   SSL_CTX_set_verify(ctx_, SSL_VERIFY_NONE, NULL);
