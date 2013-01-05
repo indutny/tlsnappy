@@ -97,6 +97,9 @@ Context::Context() : status_(kRunning), npn_(NULL) {
   // one RTT.
   SSL_CTX_set_mode(ctx_, SSL_MODE_HANDSHAKE_CUTTHROUGH);
 
+  // Read more data than was asked
+  SSL_CTX_set_read_ahead(ctx_, 1);
+
   // Respect MTU
   SSL_CTX_set_max_send_fragment(ctx_, 1300);
 
