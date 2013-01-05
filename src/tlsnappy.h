@@ -38,6 +38,7 @@ class Context : public ObjectWrap {
   static Handle<Value> SetKey(const Arguments& args);
   static Handle<Value> SetCert(const Arguments& args);
   static Handle<Value> SetNPN(const Arguments& args);
+  static Handle<Value> SetCiphers(const Arguments& args);
 
   static int Advertise(SSL *s,
                        const unsigned char **data,

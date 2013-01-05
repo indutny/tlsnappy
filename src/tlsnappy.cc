@@ -252,7 +252,7 @@ BIO* LoadBIO(Handle<Value> v) {
 Handle<Value> Context::SetNPN(const Arguments& args) {
   HandleScope scope;
 
-  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
@@ -274,10 +274,26 @@ Handle<Value> Context::SetNPN(const Arguments& args) {
 }
 
 
+Handle<Value> Context::SetCiphers(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 1 || !args[0]->IsString()) {
+    return ThrowException(String::New("First argument should be String"));
+  }
+
+  String::Utf8Value str(args[0]);
+
+  Context* ctx = ObjectWrap::Unwrap<Context>(args.This());
+  SSL_CTX_set_cipher_list(ctx->ctx_, *str);
+
+  return Null();
+}
+
+
 Handle<Value> Context::SetKey(const Arguments& args) {
   HandleScope scope;
 
-  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
@@ -382,7 +398,7 @@ Handle<Value> Context::SetCert(const Arguments& args) {
   HandleScope scope;
   Context* ctx = ObjectWrap::Unwrap<Context>(args.This());
 
-  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
@@ -529,7 +545,7 @@ Handle<Value> Socket::ClearOut(const Arguments& args) {
   HandleScope scope;
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
@@ -555,7 +571,7 @@ Handle<Value> Socket::EncOut(const Arguments& args) {
   HandleScope scope;
   Socket* s = ObjectWrap::Unwrap<Socket>(args.This());
 
-  if (args.Length() < 1 ||!Buffer::HasInstance(args[0])) {
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0])) {
     return ThrowException(String::New("First argument should be Buffer"));
   }
 
@@ -831,6 +847,7 @@ void Context::Init(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t, "setKey", Context::SetKey);
   NODE_SET_PROTOTYPE_METHOD(t, "setCert", Context::SetCert);
   NODE_SET_PROTOTYPE_METHOD(t, "setNPN", Context::SetNPN);
+  NODE_SET_PROTOTYPE_METHOD(t, "setCiphers", Context::SetCiphers);
 
   target->Set(String::NewSymbol("Context"), t->GetFunction());
 }
