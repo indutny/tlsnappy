@@ -1,6 +1,6 @@
 {
   "name": "tlsnappy",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "main": "lib/tlsnappy",
   "dependencies": {
     "bindings": "~1.0.0"
