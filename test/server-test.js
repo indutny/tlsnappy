@@ -12,7 +12,7 @@ describe('TLSnappy', function() {
       server;
 
   beforeEach(function() {
-    server = tlsnappy.createServer(options).listen(44300);
+    server = tlsnappy.createTLSServer(options).listen(44300);
   });
 
   afterEach(function() {
@@ -33,8 +33,7 @@ describe('TLSnappy', function() {
     });
 
     var client = tls.connect(44300, options, function() {
-      client.write('hello');
-      client.end();
+      client.end('hello');
     });
   });
 });
