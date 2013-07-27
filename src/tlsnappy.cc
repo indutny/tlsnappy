@@ -231,7 +231,7 @@ BIO* LoadBIO(Handle<Value> v) {
   BIO* bio = BIO_new(BIO_snappy());
   assert(bio != NULL);
 
-  int r = -1;
+  int r;
 
   r = BIO_write(bio,
                 Buffer::Data(v.As<Object>()),
